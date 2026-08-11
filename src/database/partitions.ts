@@ -38,8 +38,8 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
     `);
 }
 
-export async function ensureRollingPartitions(daysBack=30,daysAhead=1):Promise<void>{
-    const today=startOfUtcDay(new Date());
+export async function ensureRollingPartitions(daysBack=30,daysAhead=1,referenceDate=new Date()):Promise<void>{
+    const today=startOfUtcDay(referenceDate);
 
     for (let offset=-daysBack;offset<=daysAhead;offset++) {
         await ensureDailyPartition(addDays(today,offset));
