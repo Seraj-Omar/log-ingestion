@@ -1,0 +1,44 @@
+{
+  "name": "log-ingestion",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Seraj-Omar/log-ingestion.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Seraj-Omar/log-ingestion/issues"
+  },
+  "homepage": "https://github.com/Seraj-Omar/log-ingestion#readme",
+  "dependencies": {
+    "fastify": "^5.11.3",
+    "pg": "^8.23.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
+    "eslint": "^10.8.1",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}
