@@ -13,7 +13,10 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src tests"
+    "lint": "eslint src tests --no-error-on-unmatched-pattern",
+    "migrate": "node-pg-migrate up -m src/database/migrations",
+    "migrate:down": "node-pg-migrate down -m src/database/migrations",
+    "migrate:create": "node-pg-migrate create -m src/database/migrations"
   },
   "repository": {
     "type": "git",
@@ -36,6 +39,7 @@
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
     "eslint": "^10.8.1",
+    "node-pg-migrate": "^9.0.0",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
