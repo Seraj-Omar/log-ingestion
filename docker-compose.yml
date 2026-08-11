@@ -5,8 +5,6 @@ services:
       POSTGRES_DB: logs
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,6 +17,50 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
+
+  migrate:
+    build:
+      context: .
+      target: build
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "npx",
+        "node-pg-migrate",
+        "up",
+        "-m",
+        "src/database/migrations"
+      ]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: production
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: logs
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
 volumes:
   postgres_data:
