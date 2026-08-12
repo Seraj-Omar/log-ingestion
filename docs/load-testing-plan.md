@@ -53,3 +53,38 @@ Test:
 - message search
 - cursor pagination
 - aggregation
+
+## Baseline Ingestion Benchmark
+
+Start the current service on `http://localhost:8080`, then run the k6 ingestion-only baseline:
+
+```bash
+k6 run load-tests/ingestion.js
+```
+
+The script uses a constant request arrival rate and reports accepted logs separately from request throughput. `BASE_URL`, `BATCH_SIZE`, `RATE`, `DURATION`, `PRE_ALLOCATED_VUS`, and `MAX_VUS` are configurable through environment variables.
+
+These examples target approximately 15,000 logs/sec at different batch sizes:
+
+```bash
+BATCH_SIZE=100 RATE=150 DURATION=30s k6 run load-tests/ingestion.js
+BATCH_SIZE=250 RATE=60 DURATION=30s k6 run load-tests/ingestion.js
+BATCH_SIZE=500 RATE=30 DURATION=30s k6 run load-tests/ingestion.js
+BATCH_SIZE=1000 RATE=15 DURATION=30s k6 run load-tests/ingestion.js
+```
+
+Higher target arrival rates can be requested without implying the service will achieve them:
+
+```bash
+# Target: 20,000 logs/sec
+BATCH_SIZE=500 RATE=40 DURATION=30s k6 run load-tests/ingestion.js
+
+# Target: 25,000 logs/sec
+BATCH_SIZE=500 RATE=50 DURATION=30s k6 run load-tests/ingestion.js
+```
+
+Use a short correctness smoke test before collecting a baseline:
+
+```bash
+BATCH_SIZE=10 RATE=1 DURATION=3s k6 run load-tests/ingestion.js
+```
