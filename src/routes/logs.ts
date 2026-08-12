@@ -1,9 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import {
-    validateBatchEnvelope,
-    validateLogBatch
-} from "../services/validate-log-batch.js";
+import {validateBatchEnvelope,validateLogBatch} from "../services/validate-log-batch.js";
 import { ingestLogs } from "../services/ingest-logs.js";
+import { getLogs } from "../services/query-logs.js";
+import { parseLogQuery } from "../schemas/log-query.js";
 
 export async function logRoutes(app:FastifyInstance):Promise<void>{
     app.post("/logs",async(request,reply)=>{
@@ -23,4 +22,32 @@ export async function logRoutes(app:FastifyInstance):Promise<void>{
         
         return reply.code(200).send({accepted:result.valid.length,rejected:result.rejected});
     })
+
+    app.get("/logs",async(request,reply)=>{
+        let filters;
+
+        try{
+            filters=parseLogQuery(request.query as Record<string,unknown>);
+        }
+        catch(error){
+            const message=error instanceof Error
+                ?error.message
+                :"invalid query parameters";
+
+            return reply.status(400).send({error:message});
+        }
+
+        try{
+            const result=await getLogs(filters);
+
+            return reply.status(200).send(result);
+        }
+        catch(error){
+            if(error instanceof Error&&error.message==="invalid cursor"){
+                return reply.status(400).send({error:error.message});
+            }
+
+            throw error;
+        }
+    });
 }
