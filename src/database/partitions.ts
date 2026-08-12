@@ -1,5 +1,7 @@
 import { pool } from "./pool.js";
 
+const knownPartitions=new Set<string>();
+
 function startOfUtcDay(date: Date): Date {
     return new Date(
         Date.UTC(
@@ -30,6 +32,10 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
 
     const name=partitionName(start);
 
+    if(knownPartitions.has(name)){
+        return;
+    }
+
     await pool.query(`
         CREATE TABLE IF NOT EXISTS ${name}
         PARTITION OF logs
@@ -38,6 +44,23 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
     `);
 }
 
+export async function ensurePartitionsForTimestamps(timestamps:readonly string[]):Promise<void>{
+    const uniqueDays=new Map<string,Date>();
+
+    for(const timestamp of timestamps){
+        const date=new Date(timestamp);
+        const start=startOfUtcDay(date);
+        const name=partitionName(start);
+
+        if(!uniqueDays.has(name)){
+            uniqueDays.set(name,start);
+        }
+    }
+
+    for(const date of uniqueDays.values()){
+        await ensureDailyPartition(date);
+    }
+}
 export async function ensureRollingPartitions(daysBack=30,daysAhead=1,referenceDate=new Date()):Promise<void>{
     const today=startOfUtcDay(referenceDate);
 
