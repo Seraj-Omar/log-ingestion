@@ -37,25 +37,33 @@ describe('partition management', () => {
     await ensureDailyPartition(dailyPartitionDate);
     await ensureDailyPartition(dailyPartitionDate);
 
-    const result = await pool.query<{ name: string; boundary: string }>(`
-      SELECT
-        child.relname AS name,
-        pg_get_expr(child.relpartbound, child.oid) AS boundary
-      FROM pg_class AS child
-      JOIN pg_inherits AS inheritance
-        ON inheritance.inhrelid = child.oid
-      WHERE inheritance.inhparent = 'logs'::regclass
-        AND child.relname = 'logs_2500_01_15'
-    `);
+    const client = await pool.connect();
 
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]?.name).toBe('logs_2500_01_15');
-    expect(result.rows[0]?.boundary).toContain(
-      "FROM ('2500-01-15 00:00:00+00')",
-    );
-    expect(result.rows[0]?.boundary).toContain(
-      "TO ('2500-01-16 00:00:00+00')",
-    );
+    try {
+      await client.query("SET TIME ZONE 'UTC'");
+
+      const result = await client.query<{ name: string; boundary: string }>(`
+        SELECT
+          child.relname AS name,
+          pg_get_expr(child.relpartbound, child.oid) AS boundary
+        FROM pg_class AS child
+        JOIN pg_inherits AS inheritance
+          ON inheritance.inhrelid = child.oid
+        WHERE inheritance.inhparent = 'logs'::regclass
+          AND child.relname = 'logs_2500_01_15'
+      `);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.name).toBe('logs_2500_01_15');
+      expect(result.rows[0]?.boundary).toContain(
+        "FROM ('2500-01-15 00:00:00+00')",
+      );
+      expect(result.rows[0]?.boundary).toContain(
+        "TO ('2500-01-16 00:00:00+00')",
+      );
+    } finally {
+      client.release();
+    }
   });
 
   it('creates the requested rolling partition range around a reference date', async () => {
