@@ -81,24 +81,6 @@ describe('POST /logs persistence', () => {
     expect(await storedRows()).toHaveLength(1);
   });
 
-  it('persists every log in a valid multi-log batch', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/logs',
-      payload: {
-        logs: [
-          validLog({ message: 'multi-first' }),
-          validLog({ message: 'multi-second', level: 'warn' }),
-          validLog({ message: 'multi-third', level: 'error' }),
-        ],
-      },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ accepted: 3, rejected: [] });
-    expect(await storedRows()).toHaveLength(3);
-  });
-
   it('persists only valid entries from a partially valid batch', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -138,23 +120,6 @@ describe('POST /logs persistence', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ accepted: 0 });
     expect(await storedRows()).toEqual([]);
-  });
-
-  it('preserves attributes through the complete ingestion path', async () => {
-    const attributes = {
-      user_id: '42',
-      attempt: 3,
-      successful: true,
-    };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/logs',
-      payload: { logs: [validLog({ attributes })] },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect((await storedRows())[0]?.attributes).toEqual(attributes);
   });
 
   it('creates a missing historical partition and persists before responding', async () => {

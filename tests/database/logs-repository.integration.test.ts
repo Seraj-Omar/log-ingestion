@@ -78,7 +78,11 @@ describe('insertLogs', () => {
       level: 'error',
       service: testService,
       message: 'round-trip event',
-      attributes: { traceId: 'trace-123' },
+      attributes: {
+        traceId: 'trace-123',
+        durationMs: 12.5,
+        cached: true,
+      },
     });
 
     await insertLogs([log]);
@@ -106,25 +110,6 @@ describe('insertLogs', () => {
       message: log.message,
       attributes: log.attributes,
     });
-  });
-
-  it('preserves string, number, and boolean JSONB attributes', async () => {
-    const attributes = {
-      requestId: 'req-42',
-      durationMs: 12.5,
-      cached: true,
-    };
-
-    await insertLogs([
-      logAt('2450-03-17T04:00:00.000Z', { attributes }),
-    ]);
-
-    const result = await pool.query<{ attributes: Record<string, unknown> }>(
-      'SELECT attributes FROM logs WHERE service = $1',
-      [testService],
-    );
-
-    expect(result.rows[0]?.attributes).toEqual(attributes);
   });
 
   it('stores quotes and SQL-like message text literally and safely', async () => {

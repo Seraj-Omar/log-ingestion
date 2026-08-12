@@ -214,20 +214,12 @@ describe('queryLogs', () => {
     ]);
   });
 
-  it('performs case-insensitive substring search for q', async () => {
+  it('matches q case-insensitively without returning unrelated messages', async () => {
     const rows = await queryLogs(
       filters({ service: serviceA, q: 'failed FOR' }),
     );
 
     expect(messages(rows)).toEqual(['Payment FAILED for Alpha']);
-  });
-
-  it('does not match unrelated messages for q', async () => {
-    const rows = await queryLogs(
-      filters({ service: serviceA, q: 'database unavailable' }),
-    );
-
-    expect(rows).toEqual([]);
   });
 
   it('applies several filters together', async () => {

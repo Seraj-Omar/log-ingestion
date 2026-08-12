@@ -23,18 +23,6 @@ describe('cursor utility', () => {
     expect(decodeCursor(encodeCursor(cursor))).toEqual(cursor);
   });
 
-  it('preserves timestamp and id values exactly', () => {
-    const cursor: LogCursor = {
-      timestamp: '2026-08-12T10:00:00.123Z',
-      id: '123456789',
-    };
-
-    const decoded = decodeCursor(encodeCursor(cursor));
-
-    expect(decoded.timestamp).toBe(cursor.timestamp);
-    expect(decoded.id).toBe(cursor.id);
-  });
-
   it('preserves a large bigint-like id as a string', () => {
     const cursor: LogCursor = {
       timestamp,

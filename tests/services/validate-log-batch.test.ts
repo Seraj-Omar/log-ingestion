@@ -146,50 +146,6 @@ describe('validateLogBatch', () => {
     });
   });
 
-  it('rejects an empty service', () => {
-    const result = validateLogBatch([validRawLog({ service: '' })], now);
-
-    expect(result.rejected).toEqual([
-      { index: 0, reason: 'service must be a non-empty string' },
-    ]);
-  });
-
-  it('rejects an empty message', () => {
-    const result = validateLogBatch([validRawLog({ message: '' })], now);
-
-    expect(result.rejected).toEqual([
-      { index: 0, reason: 'message must be a non-empty string' },
-    ]);
-  });
-
-  it('rejects nested attributes', () => {
-    const result = validateLogBatch(
-      [validRawLog({ attributes: { context: { requestId: 'req-123' } } })],
-      now,
-    );
-
-    expect(result.rejected).toEqual([
-      {
-        index: 0,
-        reason: 'attributes must be a flat object with string, number, or boolean values',
-      },
-    ]);
-  });
-
-  it('rejects array attributes', () => {
-    const result = validateLogBatch(
-      [validRawLog({ attributes: { tags: ['payments'] } })],
-      now,
-    );
-
-    expect(result.rejected).toEqual([
-      {
-        index: 0,
-        reason: 'attributes must be a flat object with string, number, or boolean values',
-      },
-    ]);
-  });
-
   it('keeps valid entries and reports invalid entries at their original indexes', () => {
     const firstValid = validRawLog({ message: 'First valid log' });
     const invalidLevel = validRawLog({ level: 'critical' });

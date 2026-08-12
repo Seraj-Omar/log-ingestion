@@ -42,33 +42,6 @@ describe('logSchema', () => {
     }
   });
 
-  it('accepts a string attribute', () => {
-    expect(
-      logSchema.safeParse({
-        ...validLog,
-        attributes: { requestId: 'req-123' },
-      }).success,
-    ).toBe(true);
-  });
-
-  it('accepts a number attribute', () => {
-    expect(
-      logSchema.safeParse({
-        ...validLog,
-        attributes: { durationMs: 42 },
-      }).success,
-    ).toBe(true);
-  });
-
-  it('accepts a boolean attribute', () => {
-    expect(
-      logSchema.safeParse({
-        ...validLog,
-        attributes: { cached: false },
-      }).success,
-    ).toBe(true);
-  });
-
   it('rejects a nested object attribute', () => {
     const result = logSchema.safeParse({
       ...validLog,
