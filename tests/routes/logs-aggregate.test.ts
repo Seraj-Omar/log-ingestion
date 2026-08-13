@@ -11,7 +11,7 @@ import { getAggregatedLogs } from '../../src/services/aggregate-logs.js';
 const getAggregatedLogsMock = vi.mocked(getAggregatedLogs);
 const since = '2026-08-12T10:00:00.000Z';
 const until = '2026-08-12T11:00:00.000Z';
-const emptyResult = { results: [] };
+const emptyResult = { buckets: [] };
 
 function queryUrl(params: Record<string, string>): string {
   return `/logs/aggregate?${new URLSearchParams(params).toString()}`;
@@ -319,16 +319,16 @@ describe('GET /logs/aggregate', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ results: [] });
+    expect(response.json()).toEqual({ buckets: [] });
   });
 
   it('returns a successful grouped result unchanged', async () => {
     const result = {
-      results: [
+      buckets: [
         {
-          bucket: '2026-08-12T10:00:00.000Z',
+          start: '2026-08-12T10:00:00.000Z',
           group: 'checkout',
-          count: '12',
+          count: 12,
         },
       ],
     };
@@ -343,12 +343,13 @@ describe('GET /logs/aggregate', () => {
     expect(response.json()).toEqual(result);
   });
 
-  it('preserves a bigint-like count as a string in the JSON response', async () => {
-    const count = '9223372036854775807';
+  it('preserves a contract count as a number in the JSON response', async () => {
+    const count = 2147483647;
     getAggregatedLogsMock.mockResolvedValue({
-      results: [
+      buckets: [
         {
-          bucket: '2026-08-12T10:00:00.000Z',
+          start: '2026-08-12T10:00:00.000Z',
+          group: null,
           count,
         },
       ],
@@ -358,10 +359,10 @@ describe('GET /logs/aggregate', () => {
       method: 'GET',
       url: queryUrl(minimalParams()),
     });
-    const body = response.json<{ results: Array<{ count: unknown }> }>();
+    const body = response.json<{ buckets: Array<{ count: unknown }> }>();
 
-    expect(body.results[0]?.count).toBe(count);
-    expect(typeof body.results[0]?.count).toBe('string');
+    expect(body.buckets[0]?.count).toBe(count);
+    expect(typeof body.buckets[0]?.count).toBe('number');
   });
 
   it('returns 500 when the aggregation service rejects unexpectedly', async () => {

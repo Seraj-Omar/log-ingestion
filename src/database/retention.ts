@@ -4,6 +4,20 @@ import { startOfUtcDay,addDays } from "./partitions.js";
 const DEFAULT_RETENTION_DAYS=30;
 const PARTITION_NAME_PATTERN=/^logs_(\d{4})_(\d{2})_(\d{2})$/;
 
+export function retentionDaysFromEnvironment(value:string|undefined=process.env.RETENTION_DAYS):number{
+    if(value===undefined){
+        return DEFAULT_RETENTION_DAYS;
+    }
+
+    const retentionDays=Number(value);
+
+    if(!Number.isInteger(retentionDays)||retentionDays<0){
+        throw new Error("RETENTION_DAYS must be a non-negative integer");
+    }
+
+    return retentionDays;
+}
+
 export function retentionCutOff(referenceDate:Date,retentionDays:number=DEFAULT_RETENTION_DAYS):Date{
     return addDays(startOfUtcDay(referenceDate),-retentionDays);
 }
@@ -23,7 +37,7 @@ function partitionDate(name:string):Date|null{
 }
 
 export async function dropExpiredPartitions(
-    retentionDays:number=DEFAULT_RETENTION_DAYS,
+    retentionDays:number=retentionDaysFromEnvironment(),
     referenceDate:Date=new Date()
 ):Promise<string[]>{
     const cutoff=retentionCutOff(referenceDate,retentionDays);

@@ -6,5 +6,11 @@ import { dropExpiredPartitions } from "./retention.js";
 export async function prepareDatabase():Promise<void>{
     await checkDatabaseConnection();
     await ensureRollingPartitions();
-    await dropExpiredPartitions();
+
+    try{
+        await dropExpiredPartitions();
+    }
+    catch(error){
+        console.error("retention cleanup failed",error);
+    }
 }

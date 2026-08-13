@@ -5,19 +5,19 @@ import { pool } from '../../src/database/pool.js';
 import { dropExpiredPartitions } from '../../src/database/retention.js';
 import { prepareDatabase } from '../../src/database/startup.js';
 
-const referenceDate = new Date('2580-08-13T12:00:00.000Z');
-const cutoffPartition = 'logs_2580_07_14';
-const expiredPartitions = ['logs_2580_07_12', 'logs_2580_07_13'] as const;
+const referenceDate = new Date('1980-08-13T12:00:00.000Z');
+const cutoffPartition = 'logs_1980_07_14';
+const expiredPartitions = ['logs_1980_07_12', 'logs_1980_07_13'] as const;
 const keptPartitions = [
   cutoffPartition,
-  'logs_2580_07_15',
-  'logs_2580_08_13',
-  'logs_2580_08_14',
+  'logs_1980_07_15',
+  'logs_1980_08_13',
+  'logs_1980_08_14',
 ] as const;
 const boundaryPartitions = [...expiredPartitions, ...keptPartitions] as const;
-const customPartitions = ['logs_2581_08_10', 'logs_2581_08_11'] as const;
-const startupPartition = 'logs_1987_01_02';
-const ordinaryTable = 'logs_2580_07_11_retention_test';
+const customPartitions = ['logs_1981_08_10', 'logs_1981_08_11'] as const;
+const startupPartition = 'logs_1971_01_02';
+const ordinaryTable = 'logs_1980_07_11_retention_test';
 const allTestRelations = [
   ...boundaryPartitions,
   ...customPartitions,
@@ -96,19 +96,19 @@ describe('dropExpiredPartitions', () => {
   it('keeps a partition newer than the cutoff', async () => {
     await dropExpiredPartitions(30, referenceDate);
 
-    expect(await relationExists('logs_2580_07_15')).toBe(true);
+    expect(await relationExists('logs_1980_07_15')).toBe(true);
   });
 
   it('keeps the partition for the reference day', async () => {
     await dropExpiredPartitions(30, referenceDate);
 
-    expect(await relationExists('logs_2580_08_13')).toBe(true);
+    expect(await relationExists('logs_1980_08_13')).toBe(true);
   });
 
   it('keeps a future partition', async () => {
     await dropExpiredPartitions(30, referenceDate);
 
-    expect(await relationExists('logs_2580_08_14')).toBe(true);
+    expect(await relationExists('logs_1980_08_14')).toBe(true);
   });
 
   it('returns the names of dropped partitions', async () => {
@@ -137,18 +137,18 @@ describe('dropExpiredPartitions', () => {
   });
 
   it('honors a custom retention period with the same strict boundary', async () => {
-    await ensureDailyPartition(new Date('2581-08-10T12:00:00.000Z'));
-    await ensureDailyPartition(new Date('2581-08-11T12:00:00.000Z'));
+    await ensureDailyPartition(new Date('1981-08-10T12:00:00.000Z'));
+    await ensureDailyPartition(new Date('1981-08-11T12:00:00.000Z'));
 
     const dropped = await dropExpiredPartitions(
       2,
-      new Date('2581-08-13T18:00:00.000Z'),
+      new Date('1981-08-13T18:00:00.000Z'),
     );
 
-    expect(dropped).toContain('logs_2581_08_10');
-    expect(dropped).not.toContain('logs_2581_08_11');
-    expect(await relationExists('logs_2581_08_10')).toBe(false);
-    expect(await relationExists('logs_2581_08_11')).toBe(true);
+    expect(dropped).toContain('logs_1981_08_10');
+    expect(dropped).not.toContain('logs_1981_08_11');
+    expect(await relationExists('logs_1981_08_10')).toBe(false);
+    expect(await relationExists('logs_1981_08_11')).toBe(true);
   });
 
   it('considers only child partitions of logs', async () => {
@@ -161,7 +161,7 @@ describe('dropExpiredPartitions', () => {
   });
 
   it('prepareDatabase completes only after retention cleanup has run', async () => {
-    await ensureDailyPartition(new Date('1987-01-02T12:00:00.000Z'));
+    await ensureDailyPartition(new Date('1971-01-02T12:00:00.000Z'));
     expect(await relationExists(startupPartition)).toBe(true);
 
     await expect(prepareDatabase()).resolves.toBeUndefined();

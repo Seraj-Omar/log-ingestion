@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { retentionCutOff } from '../../src/database/retention.js';
+import {
+  retentionCutOff,
+  retentionDaysFromEnvironment,
+} from '../../src/database/retention.js';
 
 describe('retentionCutOff', () => {
   it('normalizes the reference date to the start of its UTC day', () => {
@@ -55,4 +58,23 @@ describe('retentionCutOff', () => {
 
     expect(cutoff.toISOString()).toBe('2024-02-29T00:00:00.000Z');
   });
+});
+
+describe('retentionDaysFromEnvironment', () => {
+  it('defaults to 30 days when RETENTION_DAYS is omitted', () => {
+    expect(retentionDaysFromEnvironment(undefined)).toBe(30);
+  });
+
+  it('uses a configured non-negative integer', () => {
+    expect(retentionDaysFromEnvironment('45')).toBe(45);
+  });
+
+  it.each(['-1', '1.5', 'not-a-number'])(
+    'rejects invalid RETENTION_DAYS=%s',
+    (value) => {
+      expect(() => retentionDaysFromEnvironment(value)).toThrow(
+        'RETENTION_DAYS must be a non-negative integer',
+      );
+    },
+  );
 });

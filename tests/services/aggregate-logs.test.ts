@@ -42,11 +42,11 @@ describe('getAggregatedLogs', () => {
     aggregateLogsMock.mockReset();
   });
 
-  it('returns an empty results array for an empty repository result', async () => {
+  it('returns an empty buckets array for an empty repository result', async () => {
     aggregateLogsMock.mockResolvedValue([]);
 
     await expect(getAggregatedLogs(filters())).resolves.toEqual({
-      results: [],
+      buckets: [],
     });
   });
 
@@ -56,10 +56,11 @@ describe('getAggregatedLogs', () => {
     ]);
 
     await expect(getAggregatedLogs(filters())).resolves.toEqual({
-      results: [
+      buckets: [
         {
-          bucket: '2026-08-12T10:00:00.000Z',
-          count: '5',
+          start: '2026-08-12T10:00:00.000Z',
+          group: null,
+          count: 5,
         },
       ],
     });
@@ -71,20 +72,20 @@ describe('getAggregatedLogs', () => {
 
     const result = await getAggregatedLogs(filters());
 
-    expect(result.results[0]?.bucket).toBe(bucket.toISOString());
-    expect(typeof result.results[0]?.bucket).toBe('string');
+    expect(result.buckets[0]?.start).toBe(bucket.toISOString());
+    expect(typeof result.buckets[0]?.start).toBe('string');
   });
 
-  it('preserves a bigint-like count exactly as a string', async () => {
-    const count = '9223372036854775807';
+  it('converts the repository bigint count to a contract JSON number', async () => {
+    const count = '2147483647';
     aggregateLogsMock.mockResolvedValue([
       row('2026-08-12T10:00:00.000Z', count),
     ]);
 
     const result = await getAggregatedLogs(filters());
 
-    expect(result.results[0]?.count).toBe(count);
-    expect(typeof result.results[0]?.count).toBe('string');
+    expect(result.buckets[0]?.count).toBe(2147483647);
+    expect(typeof result.buckets[0]?.count).toBe('number');
   });
 
   it('shapes a grouped repository row', async () => {
@@ -93,11 +94,11 @@ describe('getAggregatedLogs', () => {
     ]);
 
     await expect(getAggregatedLogs(filters())).resolves.toEqual({
-      results: [
+      buckets: [
         {
-          bucket: '2026-08-12T10:00:00.000Z',
+          start: '2026-08-12T10:00:00.000Z',
           group: 'checkout',
-          count: '12',
+          count: 12,
         },
       ],
     });
@@ -109,20 +110,20 @@ describe('getAggregatedLogs', () => {
     ]);
 
     const result = await getAggregatedLogs(filters());
-    const item = result.results[0];
+    const item = result.buckets[0];
 
     expect(item).toHaveProperty('group', 'checkout');
     expect(item).not.toHaveProperty('group_value');
   });
 
-  it('omits group when the repository row has no group_value', async () => {
+  it('uses null group when the repository row has no group_value', async () => {
     aggregateLogsMock.mockResolvedValue([
       row('2026-08-12T10:00:00.000Z', '5'),
     ]);
 
     const result = await getAggregatedLogs(filters());
 
-    expect(result.results[0]).not.toHaveProperty('group');
+    expect(result.buckets[0]).toHaveProperty('group', null);
   });
 
   it('preserves repository ordering across multiple rows', async () => {
@@ -134,7 +135,7 @@ describe('getAggregatedLogs', () => {
 
     const result = await getAggregatedLogs(filters());
 
-    expect(result.results.map(({ bucket }) => bucket)).toEqual([
+    expect(result.buckets.map(({ start }) => start)).toEqual([
       '2026-08-12T10:00:00.000Z',
       '2026-08-12T10:01:00.000Z',
       '2026-08-12T10:05:00.000Z',
@@ -148,16 +149,16 @@ describe('getAggregatedLogs', () => {
     ]);
 
     await expect(getAggregatedLogs(filters())).resolves.toEqual({
-      results: [
+      buckets: [
         {
-          bucket: '2026-08-12T10:00:00.000Z',
+          start: '2026-08-12T10:00:00.000Z',
           group: 'checkout',
-          count: '4',
+          count: 4,
         },
         {
-          bucket: '2026-08-12T10:00:00.000Z',
+          start: '2026-08-12T10:00:00.000Z',
           group: 'billing',
-          count: '2',
+          count: 2,
         },
       ],
     });

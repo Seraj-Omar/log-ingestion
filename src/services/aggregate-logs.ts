@@ -2,27 +2,23 @@ import { aggregateLogs } from "../repositories/aggregate.js";
 import type { AggregateQueryFilters } from "../schemas/aggregate-query.js";
 
 export interface AggregateLogItem{
-    bucket:string;
-    count:string;
-    group?:string;
+    start:string;
+    group:string|null;
+    count:number;
 }
 
 export interface AggregateLogsResult{
-    results:AggregateLogItem[];
+    buckets:AggregateLogItem[];
 }
 
 export async function getAggregatedLogs(filters:AggregateQueryFilters):Promise<AggregateLogsResult>{
     const rows=await aggregateLogs(filters);
 
-    const results:AggregateLogItem[]=rows.map((row)=>{
-        const item:AggregateLogItem={bucket:row.bucket.toISOString(),count:row.count};
+    const buckets:AggregateLogItem[]=rows.map((row)=>({
+        start:row.bucket.toISOString(),
+        group:row.group_value??null,
+        count:Number(row.count)
+    }));
 
-        if(row.group_value!==undefined){
-            item.group=row.group_value;
-        }
-
-        return item;
-    })
-
-    return{results};
+    return{buckets};
 }

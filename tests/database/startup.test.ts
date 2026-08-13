@@ -23,6 +23,7 @@ import { prepareDatabase } from '../../src/database/startup.js';
 describe('prepareDatabase', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    databaseMocks.dropExpiredPartitions.mockResolvedValue([]);
   });
 
   it('checks connectivity, prepares partitions, then applies retention', async () => {
@@ -41,5 +42,21 @@ describe('prepareDatabase', () => {
     ).toBeLessThan(
       databaseMocks.dropExpiredPartitions.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('keeps startup available when retention cleanup fails', async () => {
+    const error = new Error('retention unavailable');
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    databaseMocks.dropExpiredPartitions.mockRejectedValue(error);
+
+    await expect(prepareDatabase()).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'retention cleanup failed',
+      error,
+    );
+    consoleError.mockRestore();
   });
 });
