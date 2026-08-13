@@ -50,6 +50,7 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      MAX_IN_FLIGHT_INGESTIONS: ${MAX_IN_FLIGHT_INGESTIONS:-5}
     depends_on:
       postgres:
         condition: service_healthy
