@@ -1,8 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import {validateBatchEnvelope,validateLogBatch} from "../services/validate-log-batch.js";
+
 import { ingestLogs } from "../services/ingest-logs.js";
 import { getLogs } from "../services/query-logs.js";
 import { parseLogQuery } from "../schemas/log-query.js";
+
+import { parseAggregateQuery } from "../schemas/aggregate-query.js";
+import { getAggregatedLogs } from "../services/aggregate-logs.js";
 
 export async function logRoutes(app:FastifyInstance):Promise<void>{
     app.post("/logs",async(request,reply)=>{
@@ -49,5 +53,21 @@ export async function logRoutes(app:FastifyInstance):Promise<void>{
 
             throw error;
         }
+    });
+
+    app.get("/logs/aggregate",async(request,reply)=>{
+        let filters;
+
+        try{
+            filters=parseAggregateQuery(request.query as Record<string,unknown>);
+        }
+        catch(error){
+            const message=error instanceof Error?error.message:"invalid aggregate query parameters";
+
+            return reply.status(400).send({error:message});
+        }
+
+        const result=await getAggregatedLogs(filters);
+        return reply.status(200).send(result);
     });
 }
