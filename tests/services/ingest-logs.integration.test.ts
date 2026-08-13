@@ -35,6 +35,10 @@ async function dropTestPartitions(): Promise<void> {
   }
 }
 
+async function deleteTestRows(): Promise<void> {
+  await pool.query('DELETE FROM logs WHERE service = $1', [testService]);
+}
+
 async function countRows(messagePrefix: string): Promise<number> {
   const result = await pool.query<{ count: string }>(
     `
@@ -64,6 +68,7 @@ describe('ingestLogs', () => {
   });
 
   afterAll(async () => {
+    await deleteTestRows();
     await dropTestPartitions();
     await pool.end();
   });

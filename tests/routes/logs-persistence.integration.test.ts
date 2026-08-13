@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../../src/app.js';
 import { pool } from '../../src/database/pool.js';
 
-const testService = `integration-test-route-${process.pid}`;
+const testService = 'integration-test-route-persistence';
 const historicalPartition = 'logs_1996_07_04';
 
 function validLog(overrides: Record<string, unknown> = {}): Record<string, unknown> {

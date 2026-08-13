@@ -8,9 +8,10 @@ import type { ValidLog } from '../../src/schemas/log.js';
 import type { LogQueryFilters } from '../../src/schemas/log-query.js';
 
 const testPartition = 'logs_2590_08_12';
+const testSuite = 'integration-query-2590';
 const serviceA = 'integration-query-2590-a';
 const serviceB = 'integration-query-2590-b';
-const injectionService = "x' OR 1=1 --";
+const injectionService = `${testSuite}-x' OR 1=1 --`;
 const testServices = [serviceA, serviceB, injectionService] as const;
 
 const timestamps = {
@@ -25,10 +26,12 @@ const timestamps = {
 function filters(
   overrides: Partial<LogQueryFilters> = {},
 ): LogQueryFilters {
+  const { attributes = {}, ...rest } = overrides;
+
   return {
     limit: 100,
-    attributes: {},
-    ...overrides,
+    attributes: { test_suite: testSuite, ...attributes },
+    ...rest,
   };
 }
 
@@ -39,7 +42,13 @@ function log(
   message: string,
   attributes: ValidLog['attributes'],
 ): ValidLog {
-  return { timestamp, level, service, message, attributes };
+  return {
+    timestamp,
+    level,
+    service,
+    message,
+    attributes: { test_suite: testSuite, ...attributes },
+  };
 }
 
 async function deleteTestRows(): Promise<void> {
@@ -311,6 +320,7 @@ describe('queryLogs', () => {
     );
 
     expect(rows[0]?.attributes).toEqual({
+      test_suite: testSuite,
       user_id: '42',
       region: 'eu-west',
       successful: false,
