@@ -1,6 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { ensureDailyPartition } from '../../src/database/partitions.js';
+import {
+  ensureDailyPartition,
+  forgetKnownPartition,
+} from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 import { insertLogs } from '../../src/repositories/logs.js';
 import type { ValidLog } from '../../src/schemas/log.js';
@@ -35,6 +38,7 @@ async function countTestRows(): Promise<number> {
 describe('insertLogs', () => {
   beforeAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${testPartition}`);
+    forgetKnownPartition(testPartition);
     await ensureDailyPartition(testDate);
   });
 
@@ -44,6 +48,7 @@ describe('insertLogs', () => {
 
   afterAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${testPartition}`);
+    forgetKnownPartition(testPartition);
     await pool.end();
   });
 

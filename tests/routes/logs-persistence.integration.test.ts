@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../../src/app.js';
+import { forgetKnownPartition } from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 
 const testService = 'integration-test-route-persistence';
@@ -50,6 +51,7 @@ describe('POST /logs persistence', () => {
   beforeAll(async () => {
     await pool.query('DELETE FROM logs WHERE service = $1', [testService]);
     await pool.query(`DROP TABLE IF EXISTS ${historicalPartition}`);
+    forgetKnownPartition(historicalPartition);
   });
 
   beforeEach(async () => {
@@ -64,6 +66,7 @@ describe('POST /logs persistence', () => {
 
   afterAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${historicalPartition}`);
+    forgetKnownPartition(historicalPartition);
     await pool.end();
   });
 

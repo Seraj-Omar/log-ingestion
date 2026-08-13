@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ensureDailyPartition } from '../../src/database/partitions.js';
+import {
+  ensureDailyPartition,
+  forgetKnownPartition,
+} from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 import { queryLogs, type LogRow } from '../../src/repositories/log-queries.js';
 import { insertLogs } from '../../src/repositories/logs.js';
@@ -64,6 +67,7 @@ function messages(rows: LogRow[]): string[] {
 describe('queryLogs', () => {
   beforeAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${testPartition}`);
+    forgetKnownPartition(testPartition);
     await ensureDailyPartition(new Date(timestamps.newest));
 
     await insertLogs([
@@ -122,11 +126,16 @@ describe('queryLogs', () => {
   afterAll(async () => {
     await deleteTestRows();
     await pool.query(`DROP TABLE IF EXISTS ${testPartition}`);
+    forgetKnownPartition(testPartition);
     await pool.end();
   });
 
-  it('returns rows ordered by timestamp DESC and id DESC without filters', async () => {
-    const rows = await queryLogs(filters({ limit: 1000 }));
+  it('orders rows without service, level, or message filters', async () => {
+    const rows = await queryLogs(filters({
+      since: '2590-08-12T00:00:00.000Z',
+      until: '2590-08-13T00:00:00.000Z',
+      limit: 1000,
+    }));
 
     expect(rows.length).toBeGreaterThanOrEqual(7);
 

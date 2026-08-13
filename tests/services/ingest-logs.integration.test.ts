@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ensureDailyPartition } from '../../src/database/partitions.js';
+import {
+  ensureDailyPartition,
+  forgetKnownPartition,
+} from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 import type { ValidLog } from '../../src/schemas/log.js';
 import { ingestLogs } from '../../src/services/ingest-logs.js';
@@ -32,6 +35,7 @@ function logAt(
 async function dropTestPartitions(): Promise<void> {
   for (const partition of testPartitions) {
     await pool.query(`DROP TABLE IF EXISTS ${partition}`);
+    forgetKnownPartition(partition);
   }
 }
 

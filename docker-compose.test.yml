@@ -1,4 +1,4 @@
 services:
   postgres:
     ports:
-      - "5433:5432"
+      - "${TEST_DB_PORT:-5433}:5432"
