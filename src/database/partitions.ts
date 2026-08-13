@@ -2,7 +2,7 @@ import { pool } from "./pool.js";
 
 const knownPartitions=new Set<string>();
 
-function startOfUtcDay(date: Date): Date {
+export function startOfUtcDay(date: Date): Date {
     return new Date(
         Date.UTC(
             date.getUTCFullYear(),
@@ -12,7 +12,7 @@ function startOfUtcDay(date: Date): Date {
     );
 }
 
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
     const result=new Date(date);
     result.setUTCDate(result.getUTCDate() + days);
     return result;
