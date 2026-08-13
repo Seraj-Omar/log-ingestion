@@ -1,6 +1,26 @@
 import { pool } from "./pool.js";
 
 const knownPartitions=new Set<string>();
+const partitionOperations=new Map<string,Promise<void>>();
+const PARTITION_NAME_PATTERN=/^logs_\d{4}_\d{2}_\d{2}$/;
+
+async function runPartitionOperation(name:string,operation:()=>Promise<void>):Promise<void>{
+    const previous=partitionOperations.get(name);
+    const current=previous===undefined
+        ?operation()
+        :previous.catch(()=>undefined).then(operation);
+
+    partitionOperations.set(name,current);
+
+    try{
+        await current;
+    }
+    finally{
+        if(partitionOperations.get(name)===current){
+            partitionOperations.delete(name);
+        }
+    }
+}
 
 export function startOfUtcDay(date: Date): Date {
     return new Date(
@@ -32,16 +52,39 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
 
     const name=partitionName(start);
 
-    if(knownPartitions.has(name)){
+    if(knownPartitions.has(name)&&!partitionOperations.has(name)){
         return;
     }
 
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS ${name}
-        PARTITION OF logs
-        FOR VALUES FROM ('${start.toISOString()}')
-        TO ('${end.toISOString()}')
-    `);
+    await runPartitionOperation(name,async()=>{
+        if(knownPartitions.has(name)){
+            return;
+        }
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ${name}
+            PARTITION OF logs
+            FOR VALUES FROM ('${start.toISOString()}')
+            TO ('${end.toISOString()}')
+        `);
+
+        knownPartitions.add(name);
+    });
+}
+
+export async function dropDailyPartition(name:string):Promise<void>{
+    if(!PARTITION_NAME_PATTERN.test(name)){
+        throw new Error("invalid daily partition name");
+    }
+
+    await runPartitionOperation(name,async()=>{
+        await pool.query(`DROP TABLE IF EXISTS "${name}"`);
+        knownPartitions.delete(name);
+    });
+}
+
+export function forgetKnownPartition(name:string):void{
+    knownPartitions.delete(name);
 }
 
 export async function ensurePartitionsForTimestamps(timestamps:readonly string[]):Promise<void>{

@@ -1,5 +1,5 @@
 import { pool } from "./pool.js";
-import { startOfUtcDay,addDays } from "./partitions.js";
+import { startOfUtcDay,addDays,dropDailyPartition } from "./partitions.js";
 
 const DEFAULT_RETENTION_DAYS=30;
 const PARTITION_NAME_PATTERN=/^logs_(\d{4})_(\d{2})_(\d{2})$/;
@@ -59,7 +59,7 @@ export async function dropExpiredPartitions(
             continue;
         }
 
-        await pool.query(`DROP TABLE IF EXISTS "${row.partition_name}"`);
+        await dropDailyPartition(row.partition_name);
 
         dropped.push(row.partition_name);
     }

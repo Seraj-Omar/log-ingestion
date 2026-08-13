@@ -1,6 +1,9 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ensureDailyPartition } from '../../src/database/partitions.js';
+import {
+  ensureDailyPartition,
+  forgetKnownPartition,
+} from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 import { dropExpiredPartitions } from '../../src/database/retention.js';
 import { prepareDatabase } from '../../src/database/startup.js';
@@ -28,6 +31,7 @@ const allTestRelations = [
 async function dropTestRelations(): Promise<void> {
   for (const name of allTestRelations) {
     await pool.query(`DROP TABLE IF EXISTS "${name}"`);
+    forgetKnownPartition(name);
   }
 }
 

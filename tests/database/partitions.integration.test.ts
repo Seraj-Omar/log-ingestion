@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ensureDailyPartition,
   ensureRollingPartitions,
+  forgetKnownPartition,
 } from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 
@@ -17,6 +18,7 @@ const testPartitionNames = [
 async function dropTestPartitions(): Promise<void> {
   for (const name of testPartitionNames) {
     await pool.query(`DROP TABLE IF EXISTS ${name}`);
+    forgetKnownPartition(name);
   }
 }
 
