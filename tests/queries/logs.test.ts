@@ -99,6 +99,13 @@ describe('buildLogQuery', () => {
     expect(query.values).toEqual(['%payment%', 101]);
   });
 
+  it('escapes LIKE metacharacters so q remains a literal substring', () => {
+    const query = buildLogQuery(filters({ q: String.raw`50%_\\done` }));
+
+    expect(query.text).toContain("message ILIKE $1 ESCAPE '\\'");
+    expect(query.values).toEqual([String.raw`%50\%\_\\\\done%`, 101]);
+  });
+
   it('parameterizes both cursor components in the tuple comparison', () => {
     const cursor: LogCursor = {
       timestamp: '2026-08-12T10:00:00.000Z',
@@ -195,7 +202,7 @@ describe('buildLogQuery', () => {
 
     expect(query.text).not.toContain(q);
     expect(query.text).toContain('message ILIKE $1');
-    expect(query.values).toEqual([`%${q}%`, 101]);
+    expect(query.values).toEqual(["%x\\%' OR 1=1 --%", 101]);
   });
 
   it('keeps injection-looking cursor strings as parameters', () => {

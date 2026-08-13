@@ -95,4 +95,15 @@ describe('partition creation cache', () => {
     expect(databaseMocks.query.mock.calls[1]?.[0]).toContain('DROP TABLE');
     expect(databaseMocks.query.mock.calls[2]?.[0]).toContain('CREATE TABLE');
   });
+
+  it('rejects an untrusted partition identifier without running SQL', async () => {
+    const { dropDailyPartition } = await import(
+      '../../src/database/partitions.js'
+    );
+
+    await expect(
+      dropDailyPartition('logs_2026_08_13"; DROP TABLE logs; --'),
+    ).rejects.toThrow('invalid daily partition name');
+    expect(databaseMocks.query).not.toHaveBeenCalled();
+  });
 });

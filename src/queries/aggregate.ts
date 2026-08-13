@@ -1,4 +1,5 @@
 import type { AggregateQueryFilters,AggregateBucket } from "../schemas/aggregate-query.js";
+import { escapeLikePattern } from "../utils/like-pattern.js";
 
 export interface BuiltAggregateQuery{
     text:string;
@@ -51,8 +52,8 @@ export function buildAggregateQuery(filters:AggregateQueryFilters):BuiltAggregat
     }
 
     if(filters.q!==undefined){
-        const p=addValue(`%${filters.q}%`);
-        conditions.push(`message ILIKE ${p}`);
+        const p=addValue(`%${escapeLikePattern(filters.q)}%`);
+        conditions.push(`message ILIKE ${p} ESCAPE '\\'`);
     }
 
     const interval=bucketInterval(filters.bucket);

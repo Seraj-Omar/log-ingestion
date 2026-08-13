@@ -1,5 +1,6 @@
 import type { LogQueryFilters } from "../schemas/log-query.js";
 import type { LogCursor } from "../utils/cursor.js";
+import { escapeLikePattern } from "../utils/like-pattern.js";
 
 export interface BuiltLogQuery {
     text:string;
@@ -43,8 +44,8 @@ export function buildLogQuery(filters:LogQueryFilters,cursor?:LogCursor):BuiltLo
     }
 
     if(filters.q!==undefined){
-        const p=addValue(`%${filters.q}%`);
-        conditions.push(`message ILIKE ${p}`);
+        const p=addValue(`%${escapeLikePattern(filters.q)}%`);
+        conditions.push(`message ILIKE ${p} ESCAPE '\\'`);
     }
 
     if(cursor!==undefined){

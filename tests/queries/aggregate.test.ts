@@ -119,6 +119,17 @@ describe('buildAggregateQuery', () => {
     expect(query.values).toEqual([since, until, '%payment%']);
   });
 
+  it('escapes LIKE metacharacters so q remains a literal substring', () => {
+    const query = buildAggregateQuery(filters({ q: String.raw`50%_\\done` }));
+
+    expect(query.text).toContain("message ILIKE $3 ESCAPE '\\'");
+    expect(query.values).toEqual([
+      since,
+      until,
+      String.raw`%50\%\_\\\\done%`,
+    ]);
+  });
+
   it('omits group_value and groups only by bucket when group_by is omitted', () => {
     const sql = normalizeSql(buildAggregateQuery(filters()).text);
 
@@ -202,7 +213,7 @@ describe('buildAggregateQuery', () => {
 
     expect(query.text).not.toContain(q);
     expect(normalizeSql(query.text)).toContain('message ILIKE $3');
-    expect(query.values).toEqual([since, until, `%${q}%`]);
+    expect(query.values).toEqual([since, until, "%x\\%' OR 1=1 --%"]);
   });
 
   it('selects a bigint count', () => {
