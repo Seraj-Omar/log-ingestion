@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ensureDailyPartition } from '../../src/database/partitions.js';
+import {
+  ensureDailyPartition,
+  forgetKnownPartition,
+} from '../../src/database/partitions.js';
 import { pool } from '../../src/database/pool.js';
 
 const constraintTestDate = new Date('2499-12-31T12:00:00.000Z');
@@ -16,11 +19,13 @@ interface ColumnDescription {
 describe('logs schema', () => {
   beforeAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${constraintTestPartition}`);
+    forgetKnownPartition(constraintTestPartition);
     await ensureDailyPartition(constraintTestDate);
   });
 
   afterAll(async () => {
     await pool.query(`DROP TABLE IF EXISTS ${constraintTestPartition}`);
+    forgetKnownPartition(constraintTestPartition);
     await pool.end();
   });
 
@@ -100,5 +105,70 @@ describe('logs schema', () => {
         [constraintTestDate, 'critical', 'schema-test', 'must be rejected'],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('indexes service and descending time order on every partition', async () => {
+    const parentIndex = await pool.query<{
+      definition: string;
+      is_valid: boolean;
+    }>(`
+      SELECT
+        pg_get_indexdef(indexrelid) AS definition,
+        indisvalid AS is_valid
+      FROM pg_index
+      WHERE indexrelid = 'logs_service_timestamp_id_idx'::regclass
+    `);
+    const partitionIndexes = await pool.query<{
+      partition_name: string;
+      has_valid_service_time_index: boolean;
+    }>(`
+      WITH child_partitions AS (
+        SELECT
+          child.oid AS table_oid,
+          child.relname AS partition_name
+        FROM pg_inherits AS table_inheritance
+        JOIN pg_class AS child
+          ON child.oid = table_inheritance.inhrelid
+        WHERE table_inheritance.inhparent = 'logs'::regclass
+      ),
+      attached_indexes AS (
+        SELECT
+          child_index.indrelid AS table_oid,
+          child_index.indisvalid AS is_valid,
+          pg_get_indexdef(child_index.indexrelid) AS definition
+        FROM pg_inherits AS index_inheritance
+        JOIN pg_index AS child_index
+          ON child_index.indexrelid = index_inheritance.inhrelid
+        WHERE index_inheritance.inhparent =
+          'logs_service_timestamp_id_idx'::regclass
+      )
+      SELECT
+        child_partitions.partition_name,
+        COALESCE(
+          bool_or(
+            attached_indexes.is_valid
+            AND attached_indexes.definition ~
+              'USING btree \\(service, "timestamp" DESC, id DESC\\)'
+          ),
+          false
+        ) AS has_valid_service_time_index
+      FROM child_partitions
+      LEFT JOIN attached_indexes
+        ON attached_indexes.table_oid = child_partitions.table_oid
+      GROUP BY child_partitions.partition_name
+      ORDER BY child_partitions.partition_name
+    `);
+
+    expect(parentIndex.rows).toHaveLength(1);
+    expect(parentIndex.rows[0]).toMatchObject({ is_valid: true });
+    expect(parentIndex.rows[0]?.definition).toMatch(
+      /USING btree \(service, "timestamp" DESC, id DESC\)/,
+    );
+    expect(partitionIndexes.rows.length).toBeGreaterThan(0);
+    expect(
+      partitionIndexes.rows.every(
+        ({ has_valid_service_time_index }) => has_valid_service_time_index,
+      ),
+    ).toBe(true);
   });
 });
