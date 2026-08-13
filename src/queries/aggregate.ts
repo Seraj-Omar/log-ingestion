@@ -47,7 +47,7 @@ export function buildAggregateQuery(filters:AggregateQueryFilters):BuiltAggregat
         const keyParam=addValue(key);
         const valueParam=addValue(value);
 
-        conditions.push(`attributes ->> ${keyParam} = ${valueParam}`);
+        conditions.push(`COALESCE(attributes ->> ${keyParam} = ${valueParam}, FALSE)`);
     }
 
     if(filters.q!==undefined){
