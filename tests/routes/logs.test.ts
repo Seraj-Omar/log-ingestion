@@ -26,7 +26,7 @@ describe('POST /logs', () => {
 
   beforeEach(async () => {
     ingestLogsMock.mockReset();
-    app = buildApp();
+    app = buildApp({ maxInFlightIngestions: 1 });
     await app.ready();
   });
 
@@ -153,5 +153,141 @@ describe('POST /logs', () => {
 
     expect(response.statusCode).toBe(400);
     expect(ingestLogsMock).not.toHaveBeenCalled();
+  });
+
+  it('does not return 200 until persistence completes', async () => {
+    let completePersistence: (() => void) | undefined;
+    const persistence = new Promise<void>((resolve) => {
+      completePersistence = resolve;
+    });
+    let responseSettled = false;
+
+    ingestLogsMock.mockReturnValueOnce(persistence);
+
+    const responsePromise = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog()] },
+    });
+    void responsePromise.finally(() => {
+      responseSettled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+    expect(responseSettled).toBe(false);
+
+    completePersistence?.();
+
+    const response = await responsePromise;
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('returns 503 immediately when ingestion capacity is exhausted', async () => {
+    let completeFirstIngestion: (() => void) | undefined;
+    const firstIngestion = new Promise<void>((resolve) => {
+      completeFirstIngestion = resolve;
+    });
+    ingestLogsMock
+      .mockReturnValueOnce(firstIngestion)
+      .mockResolvedValue(undefined);
+
+    const firstResponsePromise = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'first' })] },
+    });
+
+    await vi.waitFor(() => {
+      expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+
+    const overloaded = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'overloaded' })] },
+    });
+
+    expect(overloaded.statusCode).toBe(503);
+    expect(overloaded.headers['retry-after']).toBe('1');
+    expect(overloaded.json()).toEqual({ error: 'ingestion overloaded' });
+    expect(ingestLogsMock).toHaveBeenCalledOnce();
+
+    completeFirstIngestion?.();
+    expect((await firstResponsePromise).statusCode).toBe(200);
+
+    const afterRelease = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'after release' })] },
+    });
+    expect(afterRelease.statusCode).toBe(200);
+    expect(ingestLogsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves validation errors while ingestion is saturated', async () => {
+    let completeIngestion: (() => void) | undefined;
+    ingestLogsMock.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        completeIngestion = resolve;
+      }),
+    );
+
+    const activeResponse = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog()] },
+    });
+
+    await vi.waitFor(() => {
+      expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+
+    const invalidEnvelope = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: {},
+    });
+    const allInvalid = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ level: 'critical' })] },
+    });
+
+    expect(invalidEnvelope.statusCode).toBe(400);
+    expect(invalidEnvelope.json()).toEqual({
+      error: 'logs must be a non-empty array',
+    });
+    expect(allInvalid.statusCode).toBe(400);
+    expect(allInvalid.json()).toEqual({
+      accepted: 0,
+      rejected: [{ index: 0, reason: "invalid level: 'critical'" }],
+    });
+    expect(ingestLogsMock).toHaveBeenCalledOnce();
+
+    completeIngestion?.();
+    await activeResponse;
+  });
+
+  it('releases ingestion capacity when persistence fails', async () => {
+    ingestLogsMock
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    const failed = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'failed' })] },
+    });
+    const retried = await app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'retried' })] },
+    });
+
+    expect(failed.statusCode).toBe(500);
+    expect(retried.statusCode).toBe(200);
+    expect(ingestLogsMock).toHaveBeenCalledTimes(2);
   });
 });

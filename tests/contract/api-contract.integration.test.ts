@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../../src/app.js';
 import { markNotReady, markReady } from '../../src/config/readiness.js';
@@ -346,5 +346,66 @@ describe('API contract', () => {
     expect(invalidLogs.json()).toEqual({ error: 'limit must be at least 1' });
     expect(invalidAggregate.statusCode).toBe(400);
     expect(invalidAggregate.json()).toEqual({ error: 'unsupported bucket' });
+  });
+
+  it('returns the documented overload response without acknowledging a batch', async () => {
+    const overloadedApp = buildApp({ maxInFlightIngestions: 1 });
+    await overloadedApp.ready();
+    const heldClients = await Promise.all(
+      Array.from({ length: 5 }, () => pool.connect()),
+    );
+    let heldClientsReleased = false;
+
+    try {
+      const activeRequest = overloadedApp.inject({
+        method: 'POST',
+        url: '/logs',
+        payload: {
+          logs: [log(firstTimestamp, 'info', serviceA, 'blocked persistence')],
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(pool.waitingCount).toBeGreaterThan(0);
+      });
+
+      const overloaded = await overloadedApp.inject({
+        method: 'POST',
+        url: '/logs',
+        payload: {
+          logs: [log(firstTimestamp, 'info', serviceA, 'must not be accepted')],
+        },
+      });
+
+      expect(overloaded.statusCode).toBe(503);
+      expect(overloaded.headers['retry-after']).toBe('1');
+      expect(overloaded.json()).toEqual({ error: 'ingestion overloaded' });
+
+      for (const client of heldClients) {
+        client.release();
+      }
+      heldClientsReleased = true;
+
+      expect((await activeRequest).statusCode).toBe(200);
+
+      const stored = await pool.query<{ message: string }>(
+        `
+          SELECT message
+          FROM logs
+          WHERE service = $1
+            AND message IN ('blocked persistence', 'must not be accepted')
+          ORDER BY message
+        `,
+        [serviceA],
+      );
+      expect(stored.rows).toEqual([{ message: 'blocked persistence' }]);
+    } finally {
+      if (!heldClientsReleased) {
+        for (const client of heldClients) {
+          client.release();
+        }
+      }
+      await overloadedApp.close();
+    }
   });
 });
