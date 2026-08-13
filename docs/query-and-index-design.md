@@ -73,7 +73,7 @@ BRIN → benchmark later if needed
 
 ## Service
 
-Strong candidate:
+Use:
 
 ```sql
 (service, timestamp DESC, id DESC)
@@ -108,9 +108,14 @@ But benchmark before keeping it.
 ### Decision
 
 ```text
-Service index → likely keep
+Service index → keep
 Level index → benchmark first
 ```
+
+The service index is created on the partitioned parent so existing and future
+partitions receive matching child indexes. PostgreSQL cannot create an index
+concurrently on a partitioned parent, so migration `002` requires a bounded
+write-unavailable deployment window while it indexes an existing dataset.
 
 ---
 

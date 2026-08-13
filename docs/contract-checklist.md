@@ -56,6 +56,15 @@ Attributes:
 * [ ] One invalid log does not reject valid logs
 * [ ] Return success only after logs are durably stored
 
+## Overload
+
+When the bounded ingestion capacity is exhausted:
+
+* [ ] Return `503`
+* [ ] Return `Retry-After: 1`
+* [ ] Return `{ "error": "ingestion overloaded" }`
+* [ ] Do not start persistence for the rejected batch
+
 ---
 
 # GET /logs

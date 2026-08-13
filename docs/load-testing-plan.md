@@ -88,3 +88,39 @@ Use a short correctness smoke test before collecting a baseline:
 ```bash
 BATCH_SIZE=10 RATE=1 DURATION=3s k6 run load-tests/ingestion.js
 ```
+
+## End-to-End Contract Benchmark
+
+`load-tests/load.js` runs ingestion together with one log query and one
+aggregation per second, checks visibility, and verifies the final persisted
+count. Its contract-aligned defaults schedule 15,000 logs/second for 60
+seconds (900,000 logs):
+
+```bash
+k6 run load-tests/load.js
+```
+
+Use a longer run to verify sustained stability after the one-million-row
+baseline:
+
+```bash
+TARGET_LPS=15000 BATCH_SIZE=500 DURATION=300s k6 run load-tests/load.js
+```
+
+`TARGET_LPS`, `BATCH_SIZE`, `DURATION`, `SERVICE_COUNT`, `BASE_URL`, and
+`SUMMARY_PATH` are configurable. The benchmark treats overload responses as
+failures, but reports them separately from transport timeouts so graceful
+backpressure can be distinguished from a process crash.
+
+## Isolated Integration Database
+
+Integration tests use a dedicated Compose project and volume so benchmark data
+cannot leak into test queries:
+
+```bash
+npm run test:db:up
+npm run test:integration
+npm run test:db:down
+```
+
+`test:db:down` removes only the dedicated `log-ingestion-test` database volume.

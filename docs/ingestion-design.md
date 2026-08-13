@@ -176,6 +176,7 @@ The goal is to **limit useful concurrency**, not maximize the number of connecti
 * Do not allow unlimited queue growth
 * Use `429` or `503` only when overloaded
 * Never return `200` before PostgreSQL commits
+* Bound in-flight persistence with `MAX_IN_FLIGHT_INGESTIONS` (default `5`)
 
 ## Why
 
