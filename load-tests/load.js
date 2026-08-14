@@ -87,6 +87,34 @@ const DURATION_SECONDS = durationSeconds(DURATION);
 const INGEST_REQUESTS_PER_SECOND =
   TARGET_LPS / BATCH_SIZE;
 
+const PRE_ALLOCATED_VUS =
+  ENV.PRE_ALLOCATED_VUS === undefined
+    ? Math.max(
+        60,
+        INGEST_REQUESTS_PER_SECOND * 2,
+      )
+    : Number(ENV.PRE_ALLOCATED_VUS);
+
+const MAX_VUS =
+  ENV.MAX_VUS === undefined
+    ? Math.max(
+        240,
+        INGEST_REQUESTS_PER_SECOND * 6,
+      )
+    : Number(ENV.MAX_VUS);
+
+positiveInteger(
+  "PRE_ALLOCATED_VUS",
+  PRE_ALLOCATED_VUS,
+);
+positiveInteger("MAX_VUS", MAX_VUS);
+
+if (MAX_VUS < PRE_ALLOCATED_VUS) {
+  throw new Error(
+    "MAX_VUS must be greater than or equal to PRE_ALLOCATED_VUS",
+  );
+}
+
 const EXPECTED_INGEST_ITERATIONS =
   INGEST_REQUESTS_PER_SECOND * DURATION_SECONDS;
 
@@ -109,6 +137,15 @@ const completedIngestionRequests = new Counter(
 const postSuccess = new Rate("post_success");
 const postTimeouts = new Counter("post_timeouts");
 const postOverloads = new Counter("post_overloads");
+const postResponses200 = new Counter(
+  "post_responses_200",
+);
+const postResponses429 = new Counter(
+  "post_responses_429",
+);
+const postResponses503 = new Counter(
+  "post_responses_503",
+);
 
 const queryLatency = new Trend("query_latency", true);
 const querySuccess = new Rate("query_success");
@@ -176,15 +213,9 @@ export const options = {
       timeUnit: "1s",
       duration: DURATION,
 
-      preAllocatedVUs: Math.max(
-        60,
-        INGEST_REQUESTS_PER_SECOND * 2,
-      ),
+      preAllocatedVUs: PRE_ALLOCATED_VUS,
 
-      maxVUs: Math.max(
-        240,
-        INGEST_REQUESTS_PER_SECOND * 6,
-      ),
+      maxVUs: MAX_VUS,
 
       gracefulStop: "20s",
 
@@ -315,7 +346,6 @@ const LEVELS = [
   "error",
 ];
 
-let postFailuresLogged = 0;
 let queryFailuresLogged = 0;
 let aggregateFailuresLogged = 0;
 
@@ -492,6 +522,14 @@ export function ingest(data) {
     response.status === 429 || response.status === 503 ? 1 : 0,
   );
 
+  if (response.status === 200) {
+    postResponses200.add(1);
+  } else if (response.status === 429) {
+    postResponses429.add(1);
+  } else if (response.status === 503) {
+    postResponses503.add(1);
+  }
+
   const accepted = Number(
     body?.accepted || 0,
   );
@@ -510,17 +548,13 @@ export function ingest(data) {
 
   if (success) {
     acceptedLogs.add(accepted);
-  } else if (postFailuresLogged < 2) {
-    postFailuresLogged += 1;
-
-      globalThis.console.error(
-      `POST /logs failed ` +
-        `status=${response.status} ` +
-        `accepted=${accepted} ` +
-        `rejected=${rejected} ` +
-        `body=${boundedBody(response)}`,
-    );
   }
+
+  /*
+   * Module state is isolated per VU, so a local log counter
+   * cannot bound overload output for the whole test. Report
+   * ingestion failures through metrics and the summary instead.
+   */
 
   check(response, {
     "POST /logs accepted the complete batch":
@@ -1010,6 +1044,12 @@ function formatPercent(value) {
   );
 }
 
+function responseRate(count, total) {
+  return total > 0
+    ? count / total
+    : 0;
+}
+
 function failedChecks(
   data,
   accepted,
@@ -1070,6 +1110,24 @@ function renderSummary(data) {
     "completed_ingestion_requests",
     "count",
   );
+
+  const postResponseCounts = {
+    200: metricValue(
+      data,
+      "post_responses_200",
+      "count",
+    ),
+    429: metricValue(
+      data,
+      "post_responses_429",
+      "count",
+    ),
+    503: metricValue(
+      data,
+      "post_responses_503",
+      "count",
+    ),
+  };
 
   const droppedIngestionIterations =
     metricValue(
@@ -1156,6 +1214,12 @@ function renderSummary(data) {
         INGEST_REQUESTS_PER_SECOND,
       )} POST/s`,
 
+    ` Pre-allocated VUs:         ` +
+      `${formatNumber(PRE_ALLOCATED_VUS)}`,
+
+    ` Maximum VUs:               ` +
+      `${formatNumber(MAX_VUS)}`,
+
     "",
     " INGESTION",
 
@@ -1186,6 +1250,33 @@ function renderSummary(data) {
           "rate",
         ), 
       )}`,
+
+    ` HTTP 200 responses:        ` +
+      `${formatNumber(postResponseCounts[200])} ` +
+      `(${formatPercent(
+        responseRate(
+          postResponseCounts[200],
+          completedRequests,
+        ),
+      )})`,
+
+    ` HTTP 429 responses:        ` +
+      `${formatNumber(postResponseCounts[429])} ` +
+      `(${formatPercent(
+        responseRate(
+          postResponseCounts[429],
+          completedRequests,
+        ),
+      )})`,
+
+    ` HTTP 503 responses:        ` +
+      `${formatNumber(postResponseCounts[503])} ` +
+      `(${formatPercent(
+        responseRate(
+          postResponseCounts[503],
+          completedRequests,
+        ),
+      )})`,
 
     ` POST latency p95:          ` +
       `${formatNumber(
@@ -1370,6 +1461,24 @@ export function handleSummary(data) {
     "count",
   );
 
+  const postResponseCounts = {
+    200: metricValue(
+      data,
+      "post_responses_200",
+      "count",
+    ),
+    429: metricValue(
+      data,
+      "post_responses_429",
+      "count",
+    ),
+    503: metricValue(
+      data,
+      "post_responses_503",
+      "count",
+    ),
+  };
+
   const droppedIngestionIterations =
     metricValue(
       data,
@@ -1406,8 +1515,46 @@ export function handleSummary(data) {
             expectedIngestionRequests:
               EXPECTED_INGEST_ITERATIONS,
 
+            preAllocatedVUs:
+              PRE_ALLOCATED_VUS,
+
+            maxVUs:
+              MAX_VUS,
+
             completedIngestionRequests:
               completedRequests,
+
+            postResponses: {
+              200: {
+                count:
+                  postResponseCounts[200],
+                rate:
+                  responseRate(
+                    postResponseCounts[200],
+                    completedRequests,
+                  ),
+              },
+
+              429: {
+                count:
+                  postResponseCounts[429],
+                rate:
+                  responseRate(
+                    postResponseCounts[429],
+                    completedRequests,
+                  ),
+              },
+
+              503: {
+                count:
+                  postResponseCounts[503],
+                rate:
+                  responseRate(
+                    postResponseCounts[503],
+                    completedRequests,
+                  ),
+              },
+            },
 
             droppedIngestionIterations,
 

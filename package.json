@@ -18,6 +18,8 @@
     "test:db:up": "docker compose -p log-ingestion-test -f docker-compose.yml -f docker-compose.test.yml up -d --build postgres migrate",
     "test:db:down": "docker compose -p log-ingestion-test -f docker-compose.yml -f docker-compose.test.yml down --volumes",
     "lint": "eslint src tests --no-error-on-unmatched-pattern",
+    "benchmark": "k6 run load-tests/load.js",
+    "benchmark:staged": "k6 run load-tests/staged-ingestion.js",
     "migrate": "node-pg-migrate up -m src/database/migrations",
     "migrate:down": "node-pg-migrate down -m src/database/migrations",
     "migrate:create": "node-pg-migrate create -m src/database/migrations"
