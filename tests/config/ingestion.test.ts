@@ -41,7 +41,7 @@ describe('ingestionConfigFromEnvironment', () => {
       maxInFlightIngestions: 2_048,
       maxInFlightLogs: 50_000,
       maxInFlightBytes: 64 * 1024 * 1024,
-      batchSize: 500,
+      batchSize: 2000,
       batchDelayMs: 10,
     });
   });
