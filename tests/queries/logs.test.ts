@@ -66,6 +66,7 @@ describe('buildLogQuery', () => {
     );
 
     expect(normalizeSql(query.text)).toContain('attributes ->> $1 = $2');
+    expect(normalizeSql(query.text)).not.toContain('OFFSET 0');
     expect(query.values).toEqual(['user_id', '42', 101]);
   });
 
@@ -96,7 +97,26 @@ describe('buildLogQuery', () => {
     const query = buildLogQuery(filters({ q: 'payment' }));
 
     expect(normalizeSql(query.text)).toContain('message ILIKE $1');
+    expect(normalizeSql(query.text)).toContain('OFFSET 0');
     expect(query.values).toEqual(['%payment%', 101]);
+  });
+
+  it('keeps service-filtered searches on the ordered service index path', () => {
+    const query = buildLogQuery(
+      filters({ service: 'checkout', q: 'payment' }),
+    );
+
+    expect(normalizeSql(query.text)).not.toContain('OFFSET 0');
+    expect(query.values).toEqual(['checkout', '%payment%', 101]);
+  });
+
+  it('filters q and attributes before ordering when no service is present', () => {
+    const query = buildLogQuery(
+      filters({ q: 'payment', attributes: { region: 'eu-west' } }),
+    );
+
+    expect(normalizeSql(query.text)).toContain('OFFSET 0');
+    expect(query.values).toEqual(['region', 'eu-west', '%payment%', 101]);
   });
 
   it('escapes LIKE metacharacters so q remains a literal substring', () => {

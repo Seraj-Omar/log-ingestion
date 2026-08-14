@@ -61,7 +61,7 @@ export function buildLogQuery(filters:LogQueryFilters,cursor?:LogCursor):BuiltLo
         ?`WHERE ${conditions.join(" AND ")}`
         :"";
 
-    const text=`
+    const baseSelect=`
         SELECT
             id,
             timestamp,
@@ -71,6 +71,18 @@ export function buildLogQuery(filters:LogQueryFilters,cursor?:LogCursor):BuiltLo
             attributes
         FROM logs
         ${where}
+    `;
+
+    const shouldFilterBeforeOrdering=
+        filters.service===undefined&&
+        filters.q!==undefined;
+
+    const from=shouldFilterBeforeOrdering
+        ?`SELECT * FROM (${baseSelect} OFFSET 0) AS filtered_logs`
+        :baseSelect;
+
+    const text=`
+        ${from}
         ORDER BY timestamp DESC, id DESC
         LIMIT ${limitParam}
     `.trim();

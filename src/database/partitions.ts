@@ -66,6 +66,12 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
             PARTITION OF logs
             FOR VALUES FROM ('${start.toISOString()}')
             TO ('${end.toISOString()}')
+            WITH (
+                autovacuum_vacuum_insert_scale_factor = 0.005,
+                autovacuum_vacuum_insert_threshold = 10000,
+                autovacuum_analyze_scale_factor = 0.01,
+                autovacuum_analyze_threshold = 10000
+            )
         `);
 
         knownPartitions.add(name);
