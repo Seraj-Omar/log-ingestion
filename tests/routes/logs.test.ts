@@ -26,7 +26,10 @@ describe('POST /logs', () => {
 
   beforeEach(async () => {
     ingestLogsMock.mockReset();
-    app = buildApp({ maxInFlightIngestions: 1 });
+    app = buildApp({
+      maxInFlightIngestions: 1,
+      ingestionBatchDelayMs: 0,
+    });
     await app.ready();
   });
 
@@ -182,6 +185,94 @@ describe('POST /logs', () => {
 
     const response = await responsePromise;
     expect(response.statusCode).toBe(200);
+  });
+
+  it('waits for an admitted durable request before closing', async () => {
+    let completePersistence: (() => void) | undefined;
+    ingestLogsMock.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        completePersistence = resolve;
+      }),
+    );
+
+    const responsePromise = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [validLog({ message: 'shutdown drain' })] },
+    });
+    await vi.waitFor(() => {
+      expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+
+    let closed = false;
+    const closePromise = app.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    completePersistence?.();
+    expect((await responsePromise).statusCode).toBe(200);
+    await closePromise;
+    expect(closed).toBe(true);
+  });
+
+  it('coalesces requests and returns each response only after the combined write completes', async () => {
+    await app.close();
+    app = buildApp({
+      maxInFlightIngestions: 2,
+      ingestionBatchSize: 2,
+      ingestionBatchDelayMs: 1_000,
+    });
+    await app.ready();
+
+    let completePersistence: (() => void) | undefined;
+    ingestLogsMock.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        completePersistence = resolve;
+      }),
+    );
+
+    const firstLog = validLog({ message: 'first coalesced event' });
+    const secondLog = validLog({ message: 'second coalesced event' });
+    let firstResponseSettled = false;
+    let secondResponseSettled = false;
+
+    const firstResponsePromise = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [firstLog] },
+    });
+    void firstResponsePromise.finally(() => {
+      firstResponseSettled = true;
+    });
+
+    const secondResponsePromise = app.inject({
+      method: 'POST',
+      url: '/logs',
+      payload: { logs: [secondLog] },
+    });
+    void secondResponsePromise.finally(() => {
+      secondResponseSettled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+    expect(ingestLogsMock).toHaveBeenCalledWith([firstLog, secondLog]);
+    expect(firstResponseSettled).toBe(false);
+    expect(secondResponseSettled).toBe(false);
+
+    completePersistence?.();
+
+    const [firstResponse, secondResponse] = await Promise.all([
+      firstResponsePromise,
+      secondResponsePromise,
+    ]);
+    expect(firstResponse.statusCode).toBe(200);
+    expect(firstResponse.json()).toEqual({ accepted: 1, rejected: [] });
+    expect(secondResponse.statusCode).toBe(200);
+    expect(secondResponse.json()).toEqual({ accepted: 1, rejected: [] });
   });
 
   it('returns 503 immediately when ingestion capacity is exhausted', async () => {

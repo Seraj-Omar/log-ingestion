@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyPluginOptions } from "fastify";
 import {validateBatchEnvelope,validateLogBatch} from "../services/validate-log-batch.js";
 
 import { ingestLogs } from "../services/ingest-logs.js";
-import { IngestionAdmission } from "../services/ingestion-admission.js";
+import { IngestionBatcher } from "../services/ingestion-batcher.js";
 import { getLogs } from "../services/query-logs.js";
 import { parseLogQuery } from "../schemas/log-query.js";
 
@@ -11,17 +11,99 @@ import { getAggregatedLogs } from "../services/aggregate-logs.js";
 
 interface LogRouteOptions extends FastifyPluginOptions {
     maxInFlightIngestions: number;
+    maxInFlightLogs: number;
+    maxInFlightBytes: number;
+    batchSize: number;
+    batchDelayMs: number;
+}
+
+const MINIMUM_RETAINED_REQUEST_BYTES=2_048;
+const RETAINED_BODY_SIZE_MULTIPLIER=8;
+
+const ingestionSuccessResponseSchema={
+    type:"object",
+    additionalProperties:false,
+    required:["accepted","rejected"],
+    properties:{
+        accepted:{type:"integer",minimum:0},
+        rejected:{
+            type:"array",
+            items:{
+                type:"object",
+                additionalProperties:false,
+                required:["index","reason"],
+                properties:{
+                    index:{type:"integer",minimum:0},
+                    reason:{type:"string"}
+                }
+            }
+        }
+    }
+} as const;
+
+const ingestionErrorResponseSchema={
+    type:"object",
+    additionalProperties:false,
+    required:["error"],
+    properties:{
+        error:{type:"string"}
+    }
+} as const;
+
+const fastifyErrorResponseSchema={
+    type:"object",
+    required:["statusCode","error","message"],
+    properties:{
+        statusCode:{type:"integer"},
+        code:{type:"string"},
+        error:{type:"string"},
+        message:{type:"string"}
+    }
+} as const;
+
+function requestBodyBytes(body:unknown,contentLength:string|undefined):number{
+    if(contentLength!==undefined&&/^\d+$/.test(contentLength)){
+        const parsed=Number(contentLength);
+
+        if(Number.isSafeInteger(parsed)){
+            return parsed;
+        }
+    }
+
+    return Buffer.byteLength(JSON.stringify(body),"utf8");
 }
 
 export async function logRoutes(
     app: FastifyInstance,
     options: LogRouteOptions
 ):Promise<void>{
-    const ingestionAdmission = new IngestionAdmission(
-        options.maxInFlightIngestions
-    );
+    const ingestionBatcher=new IngestionBatcher(ingestLogs,{
+        maxInFlightRequests:options.maxInFlightIngestions,
+        maxInFlightLogs:options.maxInFlightLogs,
+        maxInFlightBytes:options.maxInFlightBytes,
+        batchSize:options.batchSize,
+        batchDelayMs:options.batchDelayMs
+    });
 
-    app.post("/logs",async(request,reply)=>{
+    app.addHook("onClose",async()=>{
+        await ingestionBatcher.close();
+    });
+
+    app.post("/logs",{
+        schema:{
+            response:{
+                200:ingestionSuccessResponseSchema,
+                400:{
+                    oneOf:[
+                        ingestionSuccessResponseSchema,
+                        ingestionErrorResponseSchema,
+                        fastifyErrorResponseSchema
+                    ]
+                },
+                503:ingestionErrorResponseSchema
+            }
+        }
+    },async(request,reply)=>{
         const envelope=validateBatchEnvelope(request.body);
 
         if(!envelope.success){
@@ -34,21 +116,23 @@ export async function logRoutes(
             return reply.code(400).send({accepted:0,rejected:result.rejected});
         }
 
-        const releaseIngestionSlot = ingestionAdmission.tryAcquire();
+        const retainedBytes=Math.max(
+            MINIMUM_RETAINED_REQUEST_BYTES,
+            requestBodyBytes(
+                request.body,
+                request.headers["content-length"]
+            )*RETAINED_BODY_SIZE_MULTIPLIER
+        );
+        const persistence=ingestionBatcher.tryIngest(result.valid,retainedBytes);
 
-        if (releaseIngestionSlot === null) {
+        if(persistence===null){
             return reply
                 .header("Retry-After", "1")
                 .code(503)
                 .send({error:"ingestion overloaded"});
         }
 
-        try {
-            await ingestLogs(result.valid);
-        }
-        finally {
-            releaseIngestionSlot();
-        }
+        await persistence;
         
         return reply.code(200).send({accepted:result.valid.length,rejected:result.rejected});
     })

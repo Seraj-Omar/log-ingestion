@@ -352,7 +352,7 @@ describe('API contract', () => {
     const overloadedApp = buildApp({ maxInFlightIngestions: 1 });
     await overloadedApp.ready();
     const heldClients = await Promise.all(
-      Array.from({ length: 5 }, () => pool.connect()),
+      Array.from({ length: pool.options.max }, () => pool.connect()),
     );
     let heldClientsReleased = false;
 
