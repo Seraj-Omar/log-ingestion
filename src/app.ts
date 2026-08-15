@@ -2,6 +2,7 @@ import fastify, { type FastifyInstance } from 'fastify';
 import { ingestionConfigFromEnvironment } from './config/ingestion.js';
 import { healthRoute } from './routes/health.js';
 import { logRoutes } from './routes/logs.js';
+import { metricsRoutes } from './routes/metrics.js';
 
 export interface BuildAppOptions {
     maxInFlightIngestions?: number;
@@ -16,21 +17,12 @@ export function buildApp(options: BuildAppOptions = {}):FastifyInstance{
     const app=fastify({bodyLimit:1024*1024});
     app.register(healthRoute);
     app.register(logRoutes, {
-        maxInFlightIngestions:
-            options.maxInFlightIngestions ??
-            environmentConfig.maxInFlightIngestions,
-        maxInFlightLogs:
-            options.maxInFlightLogs ??
-            environmentConfig.maxInFlightLogs,
-        maxInFlightBytes:
-            options.maxInFlightBytes ??
-            environmentConfig.maxInFlightBytes,
-        batchSize:
-            options.ingestionBatchSize ??
-            environmentConfig.batchSize,
-        batchDelayMs:
-            options.ingestionBatchDelayMs ??
-            environmentConfig.batchDelayMs
+        maxInFlightIngestions:options.maxInFlightIngestions??environmentConfig.maxInFlightIngestions,
+        maxInFlightLogs:options.maxInFlightLogs??environmentConfig.maxInFlightLogs,
+        maxInFlightBytes:options.maxInFlightBytes??environmentConfig.maxInFlightBytes,
+        batchSize:options.ingestionBatchSize??environmentConfig.batchSize,
+        batchDelayMs:options.ingestionBatchDelayMs??environmentConfig.batchDelayMs
     });
+    app.register(metricsRoutes);
     return app;
 }
