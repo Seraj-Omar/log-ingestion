@@ -22,6 +22,8 @@ The implementation is designed for constrained resources and targets **15,000+ l
 - Configurable retention
 - Automatic database migrations
 - Health/readiness checks
+- Prometheus-compatible operational metrics
+- Ingestion, query, aggregation, and process observability
 - Docker Compose zero-config startup
 - Unit and integration test suites
 - GitHub Actions CI
@@ -101,6 +103,43 @@ The endpoint returns:
 
 - `200` when startup preparation has completed and PostgreSQL is reachable.
 - `503` while starting or when PostgreSQL is unavailable.
+
+---
+
+# `GET /metrics`
+
+Exposes Prometheus-compatible operational metrics for the service.
+
+Example:
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+The endpoint exposes ingestion, query, aggregation, and process metrics.
+
+Key metrics include:
+
+- `ingestion_requests_total`
+- `logs_accepted_total`
+- `logs_rejected_total`
+- `ingestion_db_writes_total`
+- `ingestion_db_write_logs_total`
+- `ingestion_in_flight_requests`
+- `ingestion_in_flight_logs`
+- `ingestion_in_flight_bytes`
+- `ingestion_db_write_duration_seconds`
+- `query_requests_total`
+- `query_duration_seconds`
+- `aggregation_requests_total`
+- `aggregation_duration_seconds`
+- `process_resident_memory_bytes`
+- `process_heap_used_bytes`
+- `process_uptime_seconds`
+
+Latency metrics are exposed as Prometheus histograms.
+
+The metrics endpoint is additive and does not change the required ingestion, query, or aggregation API contracts.
 
 ---
 
@@ -660,6 +699,29 @@ accepted logs - persisted logs = 0
 
 ---
 
+## Metrics-Enabled Validation
+
+After operational metrics were added, the required **15,000 logs/second** workload was rerun for five minutes under the same Docker resource limits.
+
+| Metric | Result |
+|---|---:|
+| Actual ingestion rate | **15,001.67 logs/s** |
+| Accepted logs | **4,500,500** |
+| Persisted logs | **4,500,500** |
+| POST success | **100%** |
+| HTTP 503 responses | **0** |
+| Dropped ingestion iterations | **0** |
+| POST latency p95 | **41.86 ms** |
+| Query latency p95 | **69.04 ms** |
+| Aggregate latency p95 | **203.93 ms** |
+| Worst measured visibility | **14 ms** |
+
+The metrics endpoint reported approximately **500.6 logs per database write**, an average database write duration of approximately **16 ms**, application RSS of approximately **76 MB**, and heap usage of approximately **14.6 MB**.
+
+This confirms that operational metrics remain compatible with the required **15,000 logs/second** workload while the application stays well below its 256 MB memory limit.
+
+---
+
 ## Capacity and Overload Behavior
 
 Additional two-minute capacity tests were used to determine where bounded backpressure begins.
@@ -752,8 +814,8 @@ npm run test:unit
 Current suite:
 
 ```text
-21 test files
-303 unit tests
+23 test files
+311 unit tests
 ```
 
 ## Integration Tests
@@ -786,7 +848,7 @@ Current suite:
 Total:
 
 ```text
-387 automated tests
+395 automated tests
 ```
 
 The integration suite exercises the service against a real PostgreSQL instance rather than mocking the database.
@@ -945,6 +1007,7 @@ The defaults work without requiring configuration.
 │   ├── config/
 │   ├── database/
 │   │   └── migrations/
+│   ├── metrics/
 │   ├── queries/
 │   ├── repositories/
 │   ├── routes/
@@ -958,6 +1021,7 @@ The defaults work without requiring configuration.
 │   ├── config/
 │   ├── contract/
 │   ├── database/
+│   ├── metrics/
 │   ├── queries/
 │   ├── repositories/
 │   ├── routes/
@@ -1048,6 +1112,8 @@ The implementation prioritizes:
    - automatic partition management
    - automatic retention
    - readiness checks
+   - Prometheus-compatible operational metrics
+   - ingestion, query, aggregation, and process observability
 
 6. **Testability**
    - unit tests
@@ -1072,9 +1138,12 @@ The service provides a complete log ingestion pipeline with:
 - automatic daily partition management
 - partition-based retention
 - automated migrations
+- Prometheus-compatible operational metrics
 - comprehensive automated testing
 - reproducible Docker startup
 - CI validation
 - sustained high-throughput ingestion under strict resource limits
 
 Under the documented local Docker constraints, the service sustained approximately **19,500 logs/second for five minutes**, with **100% successful ingestion, zero overload responses, and zero accepted-log loss**, while queries, aggregations, and visibility checks ran concurrently.
+
+With operational metrics enabled, the service also sustained the required **15,000 logs/second** workload for five minutes with **100% ingestion success and zero overload responses**.
