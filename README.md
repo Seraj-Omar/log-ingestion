@@ -24,6 +24,7 @@ The implementation is designed for constrained resources and targets **15,000+ l
 - Health/readiness checks
 - Prometheus-compatible operational metrics
 - Ingestion, query, aggregation, and process observability
+- Live log tailing over Server-Sent Events (SSE)
 - Docker Compose zero-config startup
 - Unit and integration test suites
 - GitHub Actions CI
@@ -449,6 +450,41 @@ Aggregation uses PostgreSQL `date_bin()`.
 
 ---
 
+# `GET /logs/tail`
+
+Streams newly persisted logs in real time using Server-Sent Events (SSE).
+
+Example:
+
+```bash
+curl -N http://localhost:8080/logs/tail
+```
+
+A connected client first receives:
+
+```text
+: connected
+```
+
+Persisted logs are then streamed as SSE events:
+
+```text
+event: logs
+data: {"logs":[...]}
+```
+
+Live-tail behavior:
+
+- logs are published only after PostgreSQL persistence succeeds
+- a heartbeat is sent every 15 seconds
+- disconnected clients are removed automatically
+- slow clients do not block ingestion
+- when a client is backpressured, live events may be skipped until its socket drains
+
+Live tail is best-effort observability. PostgreSQL remains the durable source of truth.
+
+---
+
 # Database Design
 
 The main logical schema is:
@@ -722,6 +758,26 @@ This confirms that operational metrics remain compatible with the required **15,
 
 ---
 
+## Live-Tail Validation
+
+Live tail was also tested at the required **15,000 logs/second** ingestion rate.
+
+With no live-tail subscriber connected, a two-minute run sustained **15,004.17 logs/second** with **100% POST success**, **0** overload responses, and **0** accepted-log loss.
+
+With one active SSE subscriber connected, a 30-second run sustained **15,016.67 logs/second** with:
+
+| Metric | Result |
+|---|---:|
+| POST success | **100%** |
+| HTTP 503 responses | **0** |
+| Dropped ingestion iterations | **0** |
+| POST latency p95 | **37.39 ms** |
+| Accepted but missing | **0** |
+
+The SSE connection remained open throughout the run.
+
+---
+
 ## Capacity and Overload Behavior
 
 Additional two-minute capacity tests were used to determine where bounded backpressure begins.
@@ -814,8 +870,8 @@ npm run test:unit
 Current suite:
 
 ```text
-23 test files
-311 unit tests
+25 test files
+319 unit tests
 ```
 
 ## Integration Tests
@@ -848,7 +904,7 @@ Current suite:
 Total:
 
 ```text
-395 automated tests
+403 automated tests
 ```
 
 The integration suite exercises the service against a real PostgreSQL instance rather than mocking the database.
@@ -1007,6 +1063,7 @@ The defaults work without requiring configuration.
 │   ├── config/
 │   ├── database/
 │   │   └── migrations/
+│   ├── live-tail/
 │   ├── metrics/
 │   ├── queries/
 │   ├── repositories/
@@ -1021,6 +1078,7 @@ The defaults work without requiring configuration.
 │   ├── config/
 │   ├── contract/
 │   ├── database/
+│   ├── live-tail/
 │   ├── metrics/
 │   ├── queries/
 │   ├── repositories/
@@ -1114,6 +1172,7 @@ The implementation prioritizes:
    - readiness checks
    - Prometheus-compatible operational metrics
    - ingestion, query, aggregation, and process observability
+   - live log tailing over SSE
 
 6. **Testability**
    - unit tests
@@ -1139,6 +1198,7 @@ The service provides a complete log ingestion pipeline with:
 - partition-based retention
 - automated migrations
 - Prometheus-compatible operational metrics
+- live log tailing over SSE
 - comprehensive automated testing
 - reproducible Docker startup
 - CI validation
@@ -1147,3 +1207,5 @@ The service provides a complete log ingestion pipeline with:
 Under the documented local Docker constraints, the service sustained approximately **19,500 logs/second for five minutes**, with **100% successful ingestion, zero overload responses, and zero accepted-log loss**, while queries, aggregations, and visibility checks ran concurrently.
 
 With operational metrics enabled, the service also sustained the required **15,000 logs/second** workload for five minutes with **100% ingestion success and zero overload responses**.
+
+With one active live-tail SSE subscriber, the service sustained **15,016.67 logs/second** with **100% POST success, zero overload responses, and zero accepted-log loss**.

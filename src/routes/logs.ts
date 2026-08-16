@@ -11,6 +11,8 @@ import { getAggregatedLogs } from "../services/aggregate-logs.js";
 
 import { metrics } from "../metrics/metrics.js";
 
+import { liveTail } from "../live-tail/live-tail.js";
+
 interface LogRouteOptions extends FastifyPluginOptions {
     maxInFlightIngestions: number;
     maxInFlightLogs: number;
@@ -135,6 +137,8 @@ export async function logRoutes(app: FastifyInstance,options: LogRouteOptions): 
 
             await persistence;
             metrics.incrementCounter("logs_accepted_total",result.valid.length);
+            liveTail.publish(result.valid)
+            
             return reply.code(200).send({accepted: result.valid.length,rejected: result.rejected});
         }
     );

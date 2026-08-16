@@ -3,6 +3,7 @@ import { ingestionConfigFromEnvironment } from './config/ingestion.js';
 import { healthRoute } from './routes/health.js';
 import { logRoutes } from './routes/logs.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { liveTailRoutes } from "./routes/live-tail.js";
 
 export interface BuildAppOptions {
     maxInFlightIngestions?: number;
@@ -15,6 +16,7 @@ export interface BuildAppOptions {
 export function buildApp(options: BuildAppOptions = {}):FastifyInstance{
     const environmentConfig=ingestionConfigFromEnvironment();
     const app=fastify({bodyLimit:1024*1024});
+
     app.register(healthRoute);
     app.register(logRoutes, {
         maxInFlightIngestions:options.maxInFlightIngestions??environmentConfig.maxInFlightIngestions,
@@ -24,5 +26,7 @@ export function buildApp(options: BuildAppOptions = {}):FastifyInstance{
         batchDelayMs:options.ingestionBatchDelayMs??environmentConfig.batchDelayMs
     });
     app.register(metricsRoutes);
+    app.register(liveTailRoutes);
+    
     return app;
 }

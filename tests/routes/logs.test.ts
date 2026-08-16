@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { liveTail } from "../../src/live-tail/live-tail.js";
 
 vi.mock('../../src/services/ingest-logs.js', () => ({
   ingestLogs: vi.fn(),
@@ -55,6 +56,78 @@ describe('POST /logs', () => {
     expect(ingestLogsMock).toHaveBeenCalledWith(logs);
   });
 
+  it("publishes accepted logs to live tail only after persistence succeeds", async () => {
+    let completePersistence: (() => void) | undefined;
+
+    ingestLogsMock.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+            completePersistence = resolve;
+        }),
+    );
+
+    const received: unknown[] = [];
+
+    const unsubscribe = liveTail.subscribe((logs) => {
+        received.push(...logs);
+    });
+
+    const log = validLog({
+        message: "durable live tail",
+    });
+
+    const responsePromise = app.inject({
+        method: "POST",
+        url: "/logs",
+        payload: {
+            logs: [log],
+        },
+    });
+
+    await vi.waitFor(() => {
+        expect(ingestLogsMock).toHaveBeenCalledOnce();
+    });
+
+    expect(received).toHaveLength(0);
+
+    completePersistence?.();
+
+    const response = await responsePromise;
+
+    expect(response.statusCode).toBe(200);
+
+    expect(received).toEqual([log]);
+
+    unsubscribe();
+  });
+
+  it("does not publish logs to live tail when persistence fails", async () => {
+    ingestLogsMock.mockRejectedValueOnce(
+        new Error("database unavailable"),
+    );
+
+    const received: unknown[] = [];
+
+    const unsubscribe = liveTail.subscribe((logs) => {
+        received.push(...logs);
+    });
+
+    const response = await app.inject({
+        method: "POST",
+        url: "/logs",
+        payload: {
+            logs: [
+                validLog({
+                    message: "must not be published",
+                }),
+            ],
+        },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(received).toHaveLength(0);
+
+    unsubscribe();
+  });
   it('returns partial success and ingests only valid entries', async () => {
     const firstValid = validLog({ message: 'first valid event' });
     const secondValid = validLog({ message: 'second valid event' });
