@@ -61,7 +61,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8080
-
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      API_KEY: ${API_KEY:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: logs

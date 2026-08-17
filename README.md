@@ -25,6 +25,7 @@ The implementation is designed for constrained resources and targets **15,000+ l
 - Prometheus-compatible operational metrics
 - Ingestion, query, aggregation, and process observability
 - Live log tailing over Server-Sent Events (SSE)
+- Optional API-key authentication
 - Docker Compose zero-config startup
 - Unit and integration test suites
 - GitHub Actions CI
@@ -142,6 +143,52 @@ Key metrics include:
 Latency metrics are exposed as Prometheus histograms.
 
 The metrics endpoint is additive and does not change the required ingestion, query, or aggregation API contracts.
+
+---
+
+# Authentication
+
+API-key authentication is optional and **disabled by default**, so the required zero-config API contract remains unchanged.
+
+Enable authentication with:
+
+```bash
+AUTH_ENABLED=true \
+API_KEY=super-secret-key \
+docker compose up --build
+```
+
+When authentication is enabled, clients must send:
+
+```http
+X-API-Key: <API_KEY>
+```
+
+Protected endpoints:
+
+- `POST /logs`
+- `GET /logs`
+- `GET /logs/aggregate`
+- `GET /logs/tail`
+
+The following operational endpoints always remain public:
+
+- `GET /health`
+- `GET /metrics`
+
+A missing or invalid API key returns:
+
+```text
+401 Unauthorized
+```
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+Authentication is intentionally disabled by default so external load generators and the required project grader can use the service without additional configuration.
 
 ---
 
@@ -843,8 +890,8 @@ npm run test:unit
 Current suite:
 
 ```text
-25 test files
-324 unit tests
+28 test files
+339 unit tests
 ```
 
 ## Integration Tests
@@ -870,14 +917,14 @@ npm run test:db:down
 Current suite:
 
 ```text
-10 integration test files
-84 integration tests
+11 integration test files
+91 integration tests
 ```
 
 Total:
 
 ```text
-408 automated tests
+430 automated tests
 ```
 
 The integration suite exercises the service against a real PostgreSQL instance rather than mocking the database.
@@ -1004,6 +1051,8 @@ Important settings and their Docker Compose defaults:
 | `MAX_IN_FLIGHT_INGESTION_BYTES` | `67108864` |
 | `INGESTION_BATCH_SIZE` | `2000` |
 | `INGESTION_BATCH_DELAY_MS` | `10` |
+| `AUTH_ENABLED` | `false` |
+| `API_KEY` | empty |
 | `HOST` | `0.0.0.0` |
 | `PORT` | `8080` |
 
@@ -1034,6 +1083,7 @@ The defaults work without requiring configuration.
 ├── load-tests/
 │
 ├── src/
+│   ├── auth/
 │   ├── config/
 │   ├── database/
 │   │   └── migrations/
@@ -1049,6 +1099,7 @@ The defaults work without requiring configuration.
 │   └── server.ts
 │
 ├── tests/
+│   ├── auth/
 │   ├── config/
 │   ├── contract/
 │   ├── database/
@@ -1147,6 +1198,7 @@ The implementation prioritizes:
    - Prometheus-compatible operational metrics
    - ingestion, query, aggregation, and process observability
    - live log tailing over SSE
+   - optional API-key authentication
 
 6. **Testability**
    - unit tests
@@ -1173,6 +1225,7 @@ The service provides a complete log ingestion pipeline with:
 - automated migrations
 - Prometheus-compatible operational metrics
 - live log tailing over SSE
+- optional API-key authentication
 - comprehensive automated testing
 - reproducible Docker startup
 - CI validation
@@ -1182,4 +1235,4 @@ Under the documented Docker constraints, the final build sustained **15,000 logs
 
 During the same run, query p95 was **19.87 ms**, aggregation p95 was **294.39 ms**, worst measured visibility was **10 ms**, and application RSS remained approximately **78.5 MB**.
 
-Operational metrics and live-tail SSE remain additive features and do not change the required API contract. PostgreSQL remains the durable source of truth for both reads and writes.
+Operational metrics, live-tail SSE, and optional API-key authentication remain additive features and do not change the required default API contract. PostgreSQL remains the durable source of truth for both reads and writes.
