@@ -4,7 +4,7 @@ A high-throughput log ingestion, querying, and aggregation service built with **
 
 The service accepts batched logs, validates entries independently, persists accepted logs durably to PostgreSQL, and provides filtered querying and time-bucketed aggregation.
 
-The implementation is designed for constrained resources and targets **15,000+ logs/second**, with local endurance testing sustaining approximately **19,500 logs/second** under the specified Docker resource limits.
+The implementation is designed for constrained resources and targets **15,000+ logs/second**. The final end-to-end endurance benchmark sustained **15,000 logs/second for five minutes**, persisting **4.5 million logs with 100% ingestion success and zero accepted-log loss** under the specified Docker resource limits.
 
 ---
 
@@ -39,6 +39,7 @@ The implementation is designed for constrained resources and targets **15,000+ l
 - **Fastify**
 - **PostgreSQL 17**
 - **pg**
+- **pg-copy-streams**
 - **Zod**
 - **node-pg-migrate**
 - **Vitest**
@@ -237,7 +238,7 @@ Bounded ingestion queue
 Cross-request batching
     │
     ▼
-PostgreSQL INSERT
+PostgreSQL COPY FROM STDIN
     │
     ▼
 Database success
@@ -577,6 +578,16 @@ The service uses a small number of targeted indexes.
 
 Optimizes service-filtered log queries while preserving pagination order.
 
+## User ID Attribute
+
+```sql
+((attributes ->> 'user_id'), timestamp DESC, id DESC)
+```
+
+Provides an optimized path for the frequently queried `user_id` attribute while preserving generic JSONB attribute filtering for arbitrary attribute keys.
+
+A targeted expression index is used instead of indexing every possible JSONB attribute because additional indexes increase ingestion cost.
+
 ## Message Search
 
 ```text
@@ -630,27 +641,22 @@ The automated test suite includes SQL-injection-looking inputs to verify that th
 
 HTTP requests are not written to PostgreSQL one log at a time.
 
-Validated requests are coalesced into larger multi-row `INSERT` operations.
+Validated requests are coalesced by a bounded cross-request batcher and persisted using PostgreSQL `COPY FROM STDIN`.
 
 The default configuration uses:
 
 ```text
-Database batch target:     2,000 logs
-Maximum INSERT chunk:     10,000 logs
-Tail batching delay:          10 ms
+Database batch target:      2,000 logs
+Tail batching delay:           10 ms
 PostgreSQL writers:             1
+Shared PostgreSQL pool size:    3
 ```
 
-This reduces:
+`COPY FROM STDIN` reduces SQL parsing and statement overhead while allowing log data to be streamed to PostgreSQL efficiently.
 
-- network round trips
-- SQL statement overhead
-- transaction overhead
-- WAL/commit overhead per log
+A request is acknowledged only after the COPY operation containing its accepted logs succeeds. PostgreSQL therefore remains the durable source of truth.
 
-while preserving durability.
-
-Oversized writes are split into transactional chunks so the HTTP request remains atomic.
+The batching layer also bounds outstanding work by request count, log count, and retained request bytes so overload cannot create an unbounded database work queue.
 
 ---
 
@@ -678,26 +684,25 @@ The ingestion queue is bounded specifically to avoid uncontrolled memory growth 
 
 # Performance
 
-Performance was benchmarked locally using the same Docker resource constraints defined for the service.
+Performance was measured locally using the Docker resource constraints configured for the project:
 
-The benchmark runs ingestion concurrently with:
+```text
+Application:   PostgreSQL:
+0.5 CPU        1 CPU
+256 MB RAM     1 GB RAM
+```
 
-- `1` query/second
-- `1` aggregation/second
-- read-after-write visibility probes
-- final persistence verification
+## Final 5-Minute End-to-End Benchmark
 
-## 5-Minute Endurance Test
-
-The highest clean sustained rate tested was **19,500 logs/second**.
+The final build was tested for five minutes at the required **15,000 logs/second** while queries, aggregations, read-after-write visibility checks, and final persistence verification ran concurrently.
 
 Configuration:
 
 ```text
-Target ingestion:       19,500 logs/s
+Target ingestion:       15,000 logs/s
 Duration:               300 seconds
 Batch size:             500 logs/request
-Request rate:           39 POST/s
+Request rate:           30 POST/s
 Concurrent querying:    1 request/s
 Concurrent aggregation: 1 request/s
 Visibility probes:      enabled
@@ -707,98 +712,77 @@ Measured results:
 
 | Metric | Result |
 |---|---:|
-| Actual ingestion rate | **19,501.67 logs/s** |
-| Accepted logs | **5,850,500** |
-| Persisted logs | **5,850,500** |
-| Accepted but missing | **0** |
-| POST success | **100%** |
+| Scheduled ingestion rate | **15,000.00 logs/s** |
+| Accepted benchmark logs | **4,500,000** |
+| Persisted benchmark logs | **4,500,000** |
+| Completed ingestion POSTs | **9,000 / 9,000** |
+| POST success | **100.00%** |
 | HTTP 429 responses | **0** |
 | HTTP 503 responses | **0** |
 | Dropped ingestion iterations | **0** |
 | POST timeouts | **0** |
-| POST latency p95 | **144.02 ms** |
-| Query success | **100%** |
-| Query latency p95 | **77.30 ms** |
-| Aggregate success | **100%** |
-| Aggregate latency p95 | **568.17 ms** |
-| Visibility success | **100%** |
-| Visibility latency p95 | **8 ms** |
-| Worst measured visibility | **15 ms** |
+| POST latency p95 | **42.35 ms** |
+| GET success | **100.00%** |
+| GET latency p95 | **19.87 ms** |
+| Aggregation success | **100.00%** |
+| Aggregation latency p95 | **294.39 ms** |
+| Visibility success | **100.00%** |
+| Visibility latency p95 | **6 ms** |
+| Worst measured visibility | **10 ms** |
+| Accepted minus persisted | **0** |
+| Application RSS after benchmark | **~78.5 MB** |
+| Application heap usage | **~15.6 MB** |
 
-The service therefore sustained approximately **19.5k durable logs/second for five minutes** while queries, aggregations, and freshness probes ran concurrently.
-
-Every accepted log was confirmed persisted in PostgreSQL:
+The final drain confirmed:
 
 ```text
 accepted logs - persisted logs = 0
 ```
 
----
+The application therefore sustained the required ingestion workload for five minutes while remaining well below its 256 MB memory limit.
 
-## Metrics-Enabled Validation
+Internal operational metrics recorded approximately:
 
-After operational metrics were added, the required **15,000 logs/second** workload was rerun for five minutes under the same Docker resource limits.
+```text
+4.50 million persisted logs
+8,929 database COPY operations
+~504 logs per COPY operation
+~17.2 ms average COPY duration
+~4.6 ms average query duration
+~111.5 ms average aggregation duration
+```
 
-| Metric | Result |
-|---|---:|
-| Actual ingestion rate | **15,001.67 logs/s** |
-| Accepted logs | **4,500,500** |
-| Persisted logs | **4,500,500** |
-| POST success | **100%** |
-| HTTP 503 responses | **0** |
-| Dropped ingestion iterations | **0** |
-| POST latency p95 | **41.86 ms** |
-| Query latency p95 | **69.04 ms** |
-| Aggregate latency p95 | **203.93 ms** |
-| Worst measured visibility | **14 ms** |
-
-The metrics endpoint reported approximately **500.6 logs per database write**, an average database write duration of approximately **16 ms**, application RSS of approximately **76 MB**, and heap usage of approximately **14.6 MB**.
-
-This confirms that operational metrics remain compatible with the required **15,000 logs/second** workload while the application stays well below its 256 MB memory limit.
+These measurements are local benchmark results under the documented Docker limits and should not be interpreted as universal production throughput guarantees.
 
 ---
 
-## Live-Tail Validation
+## Stress and Overload Testing
 
-Live tail was also tested at the required **15,000 logs/second** ingestion rate.
+Additional workloads were intentionally run beyond the required benchmark.
 
-With no live-tail subscriber connected, a two-minute run sustained **15,004.17 logs/second** with **100% POST success**, **0** overload responses, and **0** accepted-log loss.
+With reads disabled, the COPY-based ingestion path sustained approximately **20,000 logs/second for one minute with 0% ingestion failures**.
 
-With one active SSE subscriber connected, a 30-second run sustained **15,016.67 logs/second** with:
+A substantially heavier mixed workload consisting of:
 
-| Metric | Result |
-|---|---:|
-| POST success | **100%** |
-| HTTP 503 responses | **0** |
-| Dropped ingestion iterations | **0** |
-| POST latency p95 | **37.39 ms** |
-| Accepted but missing | **0** |
+```text
+15,000 logs/s
+10 normal queries/s
+10 attribute queries/s
+1 aggregation/s
+```
 
-The SSE connection remained open throughout the run.
+eventually saturated the 1-CPU PostgreSQL container during a five-minute run.
 
----
+Under that stress workload:
 
-## Capacity and Overload Behavior
+```text
+ingestion failures: 20.69%
+aggregation p95:    2.32 s
+```
 
-Additional two-minute capacity tests were used to determine where bounded backpressure begins.
+This workload is intentionally much heavier than the primary end-to-end benchmark and demonstrates the behavior of the bounded backpressure mechanism under database saturation.
 
-| Target | Actual Accepted Rate | POST Success | 503 Responses | POST p95 | Accepted Logs Persisted |
-|---:|---:|---:|---:|---:|---:|
-| 15,000/s | 15,004/s | 100% | 0 | 37.96 ms | 100% |
-| 17,500/s | 17,504/s | 100% | 0 | 78.45 ms | 100% |
-| 19,000/s | 19,004/s | 100% | 0 | 92.24 ms | 100% |
-| 19,500/s | 19,504/s | 100% | 0 | 67.49 ms | 100% |
-| 20,000/s | 19,963/s | 99.79% | 10 | 163.40 ms | 100% |
-| 25,000/s | 24,854/s | 99.40% | 36 | 262.43 ms | 100% |
-| 30,000/s | 28,808/s | 96.03% | 286 | 1,656.38 ms | 100% |
-
-The clean operating boundary observed during these tests was between approximately **19.5k and 20k logs/second**.
-
-Above that point, the bounded ingestion queue begins returning `503 Service Unavailable` responses rather than allowing memory usage or queued database work to grow without control.
-
-Even during overload tests, all accepted logs were persisted successfully.
-
-These measurements are local benchmark results under the documented Docker resource limits and should not be interpreted as universal production throughput guarantees.
+When capacity is exhausted, ingestion requests are rejected with `503 Service Unavailable` rather than allowing queued database work and memory usage to grow without bound.
 
 ---
 
@@ -816,25 +800,14 @@ Equivalent to:
 k6 run load-tests/load.js
 ```
 
-Example 15k test:
+Final five-minute benchmark:
 
 ```bash
-DURATION=120s \
+DURATION=300s \
 TARGET_LPS=15000 \
 BATCH_SIZE=500 \
 PRE_ALLOCATED_VUS=200 \
 MAX_VUS=400 \
-k6 run load-tests/load.js
-```
-
-Example 5-minute 19.5k endurance test:
-
-```bash
-DURATION=300s \
-TARGET_LPS=19500 \
-BATCH_SIZE=500 \
-PRE_ALLOCATED_VUS=250 \
-MAX_VUS=500 \
 k6 run load-tests/load.js
 ```
 
@@ -871,7 +844,7 @@ Current suite:
 
 ```text
 25 test files
-319 unit tests
+324 unit tests
 ```
 
 ## Integration Tests
@@ -904,7 +877,7 @@ Current suite:
 Total:
 
 ```text
-403 automated tests
+408 automated tests
 ```
 
 The integration suite exercises the service against a real PostgreSQL instance rather than mocking the database.
@@ -978,6 +951,7 @@ Current migrations:
 003_add_message_trigram_index
 004_add_timestamp_brin_index
 005_tune_partition_autovacuum
+006_add_user_id_attribute_index
 ```
 
 Docker Compose runs migrations automatically before the application starts.
@@ -1127,7 +1101,7 @@ Validation
 IngestionBatcher
      │
      ▼
-Multi-row INSERT
+COPY FROM STDIN
      │
      ▼
 PostgreSQL
@@ -1153,7 +1127,7 @@ The implementation prioritizes:
    - accepted requests remain durable under overload
 
 3. **Throughput**
-   - multi-row inserts
+   - streamed PostgreSQL `COPY FROM STDIN`
    - cross-request batching
    - controlled indexing
    - bounded database concurrency
@@ -1204,8 +1178,8 @@ The service provides a complete log ingestion pipeline with:
 - CI validation
 - sustained high-throughput ingestion under strict resource limits
 
-Under the documented local Docker constraints, the service sustained approximately **19,500 logs/second for five minutes**, with **100% successful ingestion, zero overload responses, and zero accepted-log loss**, while queries, aggregations, and visibility checks ran concurrently.
+Under the documented Docker constraints, the final build sustained **15,000 logs/second for five minutes**, accepting and persisting **4.5 million benchmark logs with 100% POST success, zero overload responses, zero dropped ingestion iterations, and zero accepted-log loss**.
 
-With operational metrics enabled, the service also sustained the required **15,000 logs/second** workload for five minutes with **100% ingestion success and zero overload responses**.
+During the same run, query p95 was **19.87 ms**, aggregation p95 was **294.39 ms**, worst measured visibility was **10 ms**, and application RSS remained approximately **78.5 MB**.
 
-With one active live-tail SSE subscriber, the service sustained **15,016.67 logs/second** with **100% POST success, zero overload responses, and zero accepted-log loss**.
+Operational metrics and live-tail SSE remain additive features and do not change the required API contract. PostgreSQL remains the durable source of truth for both reads and writes.

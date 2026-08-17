@@ -1,6 +1,23 @@
 services:
   postgres:
     image: postgres:17
+
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - synchronous_commit=on
+      - -c
+      - max_parallel_workers_per_gather=0
     environment:
       POSTGRES_DB: logs
       POSTGRES_USER: postgres
@@ -44,24 +61,30 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8080
+
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: logs
       DB_USER: postgres
       DB_PASSWORD: postgres
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
+
       MAX_IN_FLIGHT_INGESTIONS: ${MAX_IN_FLIGHT_INGESTIONS:-2048}
       MAX_IN_FLIGHT_INGESTION_LOGS: ${MAX_IN_FLIGHT_INGESTION_LOGS:-50000}
       MAX_IN_FLIGHT_INGESTION_BYTES: ${MAX_IN_FLIGHT_INGESTION_BYTES:-67108864}
+
       INGESTION_BATCH_SIZE: ${INGESTION_BATCH_SIZE:-2000}
       INGESTION_BATCH_DELAY_MS: ${INGESTION_BATCH_DELAY_MS:-10}
+
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
     ports:
       - "8080:8080"
+
     deploy:
       resources:
         limits:

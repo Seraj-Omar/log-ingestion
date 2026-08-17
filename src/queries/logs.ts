@@ -36,9 +36,17 @@ export function buildLogQuery(filters:LogQueryFilters,cursor?:LogCursor):BuiltLo
         conditions.push(`timestamp < ${p}`);
     }
 
-    for(const [key,value] of Object.entries(filters.attributes)){
-        const keyParam=addValue(key);
-        const valueParam=addValue(value);
+    for (const [key, value] of Object.entries(filters.attributes)) {
+        if (key === "user_id") {
+            const valueParam = addValue(value);
+
+            conditions.push(`attributes ->> 'user_id' = ${valueParam}`);
+
+            continue;
+        }
+
+        const keyParam = addValue(key);
+        const valueParam = addValue(value);
 
         conditions.push(`attributes ->> ${keyParam} = ${valueParam}`);
     }
@@ -73,13 +81,9 @@ export function buildLogQuery(filters:LogQueryFilters,cursor?:LogCursor):BuiltLo
         ${where}
     `;
 
-    const shouldFilterBeforeOrdering=
-        filters.service===undefined&&
-        filters.q!==undefined;
+    const shouldFilterBeforeOrdering= filters.service===undefined&&filters.q!==undefined;
 
-    const from=shouldFilterBeforeOrdering
-        ?`SELECT * FROM (${baseSelect} OFFSET 0) AS filtered_logs`
-        :baseSelect;
+    const from=shouldFilterBeforeOrdering?`SELECT * FROM (${baseSelect} OFFSET 0) AS filtered_logs`:baseSelect;
 
     const text=`
         ${from}

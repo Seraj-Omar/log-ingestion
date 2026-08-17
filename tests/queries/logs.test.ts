@@ -37,6 +37,45 @@ describe('buildLogQuery', () => {
     expect(query.values).toEqual(['checkout', 101]);
   });
 
+  it('uses the indexed user_id expression for user_id attribute filters', () => {
+    const query = buildLogQuery(
+      filters({
+        attributes: {
+          user_id: 'u123',
+        },
+      }),
+    );
+
+    expect(normalizeSql(query.text)).toContain(
+      "attributes ->> 'user_id' = $1",
+    );
+
+    expect(query.values).toEqual([
+      'u123',
+      101,
+    ]);
+  });
+
+  it('keeps generic attribute filtering for other attributes', () => {
+    const query = buildLogQuery(
+      filters({
+        attributes: {
+          region: 'eu-west',
+        },
+      }),
+    );
+
+    expect(normalizeSql(query.text)).toContain(
+      'attributes ->> $1 = $2',
+    );
+
+    expect(query.values).toEqual([
+      'region',
+      'eu-west',
+      101,
+    ]);
+  });
+
   it('parameterizes a level filter', () => {
     const query = buildLogQuery(filters({ level: 'error' }));
 
@@ -60,14 +99,25 @@ describe('buildLogQuery', () => {
     expect(query.values).toEqual([until, 101]);
   });
 
-  it('parameterizes both key and value for one attribute filter', () => {
+  it('parameterizes both key and value for one generic attribute filter', () => {
     const query = buildLogQuery(
-      filters({ attributes: { user_id: '42' } }),
+      filters({
+        attributes: {
+          region: 'eu-west',
+        },
+      }),
     );
 
-    expect(normalizeSql(query.text)).toContain('attributes ->> $1 = $2');
+    expect(normalizeSql(query.text)).toContain(
+      'attributes ->> $1 = $2',
+    );
     expect(normalizeSql(query.text)).not.toContain('OFFSET 0');
-    expect(query.values).toEqual(['user_id', '42', 101]);
+
+    expect(query.values).toEqual([
+      'region',
+      'eu-west',
+      101,
+    ]);
   });
 
   it('numbers multiple attribute-filter placeholders correctly', () => {
@@ -79,13 +129,18 @@ describe('buildLogQuery', () => {
         },
       }),
     );
+
     const sql = normalizeSql(query.text);
 
-    expect(sql).toContain('attributes ->> $1 = $2');
-    expect(sql).toContain('attributes ->> $3 = $4');
-    expect(sql).toContain('LIMIT $5');
+    expect(sql).toContain(
+      "attributes ->> 'user_id' = $1",
+    );
+    expect(sql).toContain(
+      'attributes ->> $2 = $3',
+    );
+    expect(sql).toContain('LIMIT $4');
+
     expect(query.values).toEqual([
-      'user_id',
       '42',
       'region',
       'eu-west',
@@ -103,27 +158,55 @@ describe('buildLogQuery', () => {
 
   it('keeps service-filtered searches on the ordered service index path', () => {
     const query = buildLogQuery(
-      filters({ service: 'checkout', q: 'payment' }),
+      filters({
+        service: 'checkout',
+        q: 'payment',
+      }),
     );
 
     expect(normalizeSql(query.text)).not.toContain('OFFSET 0');
-    expect(query.values).toEqual(['checkout', '%payment%', 101]);
+    expect(query.values).toEqual([
+      'checkout',
+      '%payment%',
+      101,
+    ]);
   });
 
   it('filters q and attributes before ordering when no service is present', () => {
     const query = buildLogQuery(
-      filters({ q: 'payment', attributes: { region: 'eu-west' } }),
+      filters({
+        q: 'payment',
+        attributes: {
+          region: 'eu-west',
+        },
+      }),
     );
 
     expect(normalizeSql(query.text)).toContain('OFFSET 0');
-    expect(query.values).toEqual(['region', 'eu-west', '%payment%', 101]);
+
+    expect(query.values).toEqual([
+      'region',
+      'eu-west',
+      '%payment%',
+      101,
+    ]);
   });
 
   it('escapes LIKE metacharacters so q remains a literal substring', () => {
-    const query = buildLogQuery(filters({ q: String.raw`50%_\\done` }));
+    const query = buildLogQuery(
+      filters({
+        q: String.raw`50%_\\done`,
+      }),
+    );
 
-    expect(query.text).toContain("message ILIKE $1 ESCAPE '\\'");
-    expect(query.values).toEqual([String.raw`%50\%\_\\\\done%`, 101]);
+    expect(query.text).toContain(
+      "message ILIKE $1 ESCAPE '\\'",
+    );
+
+    expect(query.values).toEqual([
+      String.raw`%50\%\_\\\\done%`,
+      101,
+    ]);
   });
 
   it('parameterizes both cursor components in the tuple comparison', () => {
@@ -131,23 +214,40 @@ describe('buildLogQuery', () => {
       timestamp: '2026-08-12T10:00:00.000Z',
       id: '42',
     };
-    const query = buildLogQuery(filters(), cursor);
+
+    const query = buildLogQuery(
+      filters(),
+      cursor,
+    );
 
     expect(normalizeSql(query.text)).toContain(
       '(timestamp, id) < ($1, $2)',
     );
-    expect(query.values).toEqual([cursor.timestamp, cursor.id, 101]);
+
+    expect(query.values).toEqual([
+      cursor.timestamp,
+      cursor.id,
+      101,
+    ]);
   });
 
   it('uses 2 as the query limit when the requested limit is 1', () => {
-    const query = buildLogQuery(filters({ limit: 1 }));
+    const query = buildLogQuery(
+      filters({
+        limit: 1,
+      }),
+    );
 
     expect(normalizeSql(query.text)).toContain('LIMIT $1');
     expect(query.values).toEqual([2]);
   });
 
   it('uses 1001 as the query limit when the requested limit is 1000', () => {
-    const query = buildLogQuery(filters({ limit: 1000 }));
+    const query = buildLogQuery(
+      filters({
+        limit: 1000,
+      }),
+    );
 
     expect(normalizeSql(query.text)).toContain('LIMIT $1');
     expect(query.values).toEqual([1001]);
@@ -158,6 +258,7 @@ describe('buildLogQuery', () => {
       timestamp: '2026-08-12T10:30:00.000Z',
       id: '9001',
     };
+
     const query = buildLogQuery(
       filters({
         service: 'checkout',
@@ -173,22 +274,40 @@ describe('buildLogQuery', () => {
       }),
       cursor,
     );
-    const placeholders = [...query.text.matchAll(/\$(\d+)/g)].map(
+
+    const placeholders = [
+      ...query.text.matchAll(/\$(\d+)/g),
+    ].map(
       (match) => Number(match[1]),
     );
 
     expect(placeholders).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
     ]);
+
     expect(query.values).toEqual([
       'checkout',
       'warn',
       '2026-08-12T09:00:00.000Z',
       '2026-08-12T11:00:00.000Z',
-      'user_id',
+
+      // user_id key is now a fixed SQL expression.
       '42',
+
+      // Generic attribute still parameterizes its key.
       'region',
       'eu-west',
+
       '%payment%',
       cursor.timestamp,
       cursor.id,
@@ -198,7 +317,12 @@ describe('buildLogQuery', () => {
 
   it('keeps an injection-looking service value out of SQL text', () => {
     const service = "x' OR 1=1 --";
-    const query = buildLogQuery(filters({ service }));
+
+    const query = buildLogQuery(
+      filters({
+        service,
+      }),
+    );
 
     expect(query.text).not.toContain(service);
     expect(query.text).toContain('service = $1');
@@ -208,21 +332,44 @@ describe('buildLogQuery', () => {
   it('keeps injection-looking attribute keys and values out of SQL text', () => {
     const key = "user_id' OR '1'='1";
     const value = "42'; DROP TABLE logs; --";
-    const query = buildLogQuery(filters({ attributes: { [key]: value } }));
+
+    const query = buildLogQuery(
+      filters({
+        attributes: {
+          [key]: value,
+        },
+      }),
+    );
 
     expect(query.text).not.toContain(key);
     expect(query.text).not.toContain(value);
-    expect(query.text).toContain('attributes ->> $1 = $2');
-    expect(query.values).toEqual([key, value, 101]);
+    expect(query.text).toContain(
+      'attributes ->> $1 = $2',
+    );
+
+    expect(query.values).toEqual([
+      key,
+      value,
+      101,
+    ]);
   });
 
   it('keeps an injection-looking q value out of SQL text', () => {
     const q = "x%' OR 1=1 --";
-    const query = buildLogQuery(filters({ q }));
+
+    const query = buildLogQuery(
+      filters({
+        q,
+      }),
+    );
 
     expect(query.text).not.toContain(q);
     expect(query.text).toContain('message ILIKE $1');
-    expect(query.values).toEqual(["%x\\%' OR 1=1 --%", 101]);
+
+    expect(query.values).toEqual([
+      "%x\\%' OR 1=1 --%",
+      101,
+    ]);
   });
 
   it('keeps injection-looking cursor strings as parameters', () => {
@@ -230,23 +377,41 @@ describe('buildLogQuery', () => {
       timestamp: "2026-08-12T10:00:00.000Z' OR 1=1 --",
       id: "42' OR 1=1 --",
     };
-    const query = buildLogQuery(filters(), cursor);
+
+    const query = buildLogQuery(
+      filters(),
+      cursor,
+    );
 
     expect(query.text).not.toContain(cursor.timestamp);
     expect(query.text).not.toContain(cursor.id);
-    expect(query.text).toContain('(timestamp, id) < ($1, $2)');
-    expect(query.values).toEqual([cursor.timestamp, cursor.id, 101]);
+
+    expect(query.text).toContain(
+      '(timestamp, id) < ($1, $2)',
+    );
+
+    expect(query.values).toEqual([
+      cursor.timestamp,
+      cursor.id,
+      101,
+    ]);
   });
 
   it('adds no attribute condition for an empty attributes object', () => {
-    const query = buildLogQuery(filters({ attributes: {} }));
+    const query = buildLogQuery(
+      filters({
+        attributes: {},
+      }),
+    );
 
     expect(query.text).not.toContain('attributes ->>');
     expect(query.values).toEqual([101]);
   });
 
   it('selects every log response column', () => {
-    const sql = normalizeSql(buildLogQuery(filters()).text);
+    const sql = normalizeSql(
+      buildLogQuery(filters()).text,
+    );
 
     expect(sql).toMatch(
       /SELECT id, timestamp, level, service, message, attributes FROM logs/i,

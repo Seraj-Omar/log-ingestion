@@ -7,7 +7,7 @@ export const pool = new Pool({
     database: databaseConfig.database,
     user: databaseConfig.user,
     password: databaseConfig.password,
-    max: 5,
+    max: 3,
 });
 
 export async function checkDatabaseConnection():Promise<void>{
