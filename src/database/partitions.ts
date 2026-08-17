@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { pool } from "./pool.js";
 
 const knownPartitions=new Set<string>();
@@ -78,15 +79,39 @@ export async function ensureDailyPartition(date: Date): Promise<void> {
     });
 }
 
-export async function dropDailyPartition(name:string):Promise<void>{
-    if(!PARTITION_NAME_PATTERN.test(name)){
+type BeforePartitionDrop = (
+    client: PoolClient
+) => Promise<void>;
+
+export async function dropDailyPartition(name: string,beforeDrop?: BeforePartitionDrop): Promise<void> {
+    if (!PARTITION_NAME_PATTERN.test(name)) {
         throw new Error("invalid daily partition name");
     }
 
-    await runPartitionOperation(name,async()=>{
-        await pool.query(`DROP TABLE IF EXISTS "${name}"`);
-        knownPartitions.delete(name);
-    });
+    await runPartitionOperation(name,
+        async () => {
+            const client = await pool.connect();
+
+            try {
+                await client.query("BEGIN");
+
+                if (beforeDrop !== undefined) {
+                    await beforeDrop(client);
+                }
+
+                await client.query(`DROP TABLE IF EXISTS "${name}"`);
+                await client.query("COMMIT");
+                knownPartitions.delete(name);
+            }
+            catch (error) {
+                await client.query("ROLLBACK").catch(() => undefined);
+                throw error;
+            }
+            finally {
+                client.release();
+            }
+        }
+    );
 }
 
 export function forgetKnownPartition(name:string):void{
