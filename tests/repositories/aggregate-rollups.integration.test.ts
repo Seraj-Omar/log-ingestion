@@ -199,6 +199,114 @@ describe('aggregateLogs minute rollup path', () => {
     await pool.end();
   });
 
+  it('uses complement arithmetic correctly for an early partial first minute', async () => {
+  const rows = await aggregateLogs(
+    filters({
+      since:
+        '2593-06-15T10:00:10.000Z',
+      until:
+        '2593-06-15T10:03:00.000Z',
+    }),
+  );
+
+  expect(
+    bucketCounts(rows),
+  ).toEqual([
+    [
+      '2593-06-15T10:00:00.000Z',
+      '2',
+    ],
+    [
+      '2593-06-15T10:01:00.000Z',
+      '2',
+    ],
+    [
+      '2593-06-15T10:02:00.000Z',
+      '2',
+    ],
+  ]);
+});
+it('uses complement arithmetic correctly for a late partial last minute without returning zero buckets', async () => {
+  const rows = await aggregateLogs(
+    filters({
+      since:
+        '2593-06-15T10:01:00.000Z',
+      until:
+        '2593-06-15T10:04:50.000Z',
+    }),
+  );
+
+  /*
+   * 10:04 contains a log at 10:04:59,
+   * but it is outside the requested range.
+   *
+   * The complement path computes:
+   *
+   * full 10:04 minute = 1
+   * excluded suffix   = 1
+   * result            = 0
+   *
+   * That zero bucket must not appear.
+   */
+  expect(
+    bucketCounts(rows),
+  ).toEqual([
+    [
+      '2593-06-15T10:01:00.000Z',
+      '2',
+    ],
+    [
+      '2593-06-15T10:02:00.000Z',
+      '2',
+    ],
+    [
+      '2593-06-15T10:03:00.000Z',
+      '1',
+    ],
+  ]);
+});
+it('preserves grouped aggregation when a complemented edge removes an entire group contribution', async () => {
+  const rows = await aggregateLogs(
+    filters({
+      since:
+        '2593-06-15T10:00:00.000Z',
+      until:
+        '2593-06-15T10:04:50.000Z',
+      bucket:
+        '5m',
+      group_by:
+        'service',
+    }),
+  );
+
+  const groups = rows
+    .map(
+      ({
+        group_value,
+        count,
+      }) => [
+        group_value,
+        count,
+      ],
+    )
+    .sort(
+      ([left], [right]) =>
+        String(left).localeCompare(
+          String(right),
+        ),
+    );
+
+  expect(groups).toEqual([
+    [
+      serviceA,
+      '5',
+    ],
+    [
+      serviceB,
+      '2',
+    ],
+  ]);
+});
   it('uses minute rollups correctly for fully aligned boundaries', async () => {
     const rows = await aggregateLogs(
       filters({

@@ -1,5 +1,5 @@
-import type {AggregateQueryFilters,AggregateBucket,} from "../schemas/aggregate-query.js";
-import { escapeLikePattern } from "../utils/like-pattern.js";
+import type {AggregateQueryFilters,AggregateBucket} from "../schemas/aggregate-query.js";
+import {escapeLikePattern} from "../utils/like-pattern.js";
 
 export interface BuiltAggregateQuery {
     text: string;
@@ -22,11 +22,11 @@ function bucketInterval(bucket: AggregateBucket): string {
 }
 
 function dateBinExpression(interval: string,column: "timestamp" | "bucket_start"): string {
-    return `date_bin('${interval}',${column},TIMESTAMPTZ '1970-01-01 00:00:00+00')`;
+    return (`date_bin('${interval}',${column},` + `TIMESTAMPTZ '1970-01-01 00:00:00+00')`);
 }
 
 export function canUseAggregateRollups(filters: AggregateQueryFilters): boolean {
-    return (filters.q === undefined &&Object.keys(filters.attributes).length === 0);
+    return (filters.q === undefined && Object.keys(filters.attributes).length === 0);
 }
 
 export function buildAggregateQuery(filters: AggregateQueryFilters): BuiltAggregateQuery {
@@ -54,11 +54,11 @@ export function buildAggregateQuery(filters: AggregateQueryFilters): BuiltAggreg
         conditions.push(`level = ${p}`);
     }
 
-    for (const [key, value]of Object.entries(filters.attributes)) {
+    for (const [key,value] of Object.entries(filters.attributes)) {
         const keyParam = addValue(key);
         const valueParam = addValue(value);
 
-        conditions.push(`COALESCE(attributes ->> ${keyParam} = ${valueParam}, FALSE)`);
+        conditions.push(`COALESCE(` + `attributes ->> ${keyParam} = ${valueParam}, ` + `FALSE)`);
     }
 
     if (filters.q !== undefined) {
@@ -69,7 +69,7 @@ export function buildAggregateQuery(filters: AggregateQueryFilters): BuiltAggreg
     const interval = bucketInterval(filters.bucket);
 
     const selectParts = [
-        `${dateBinExpression(interval, "timestamp")} AS bucket`,
+        `${dateBinExpression(interval,"timestamp")} AS bucket`,
         `COUNT(*)::BIGINT AS count`,
     ];
 
@@ -89,15 +89,19 @@ export function buildAggregateQuery(filters: AggregateQueryFilters): BuiltAggreg
         ORDER BY bucket ASC
     `.trim();
 
-    return {text,values,};
+    return {text,values};
 }
 
 function ceilToMinute(timestampMs: number): number {
-    return (Math.ceil(timestampMs / MINUTE_MS) *MINUTE_MS);
+    return (Math.ceil(timestampMs / MINUTE_MS) * MINUTE_MS);
 }
 
 function floorToMinute(timestampMs: number): number {
-    return (Math.floor(timestampMs / MINUTE_MS) *MINUTE_MS);
+    return (Math.floor(timestampMs / MINUTE_MS) * MINUTE_MS);
+}
+
+function isoTimestamp(timestampMs: number): string {
+    return new Date(timestampMs).toISOString();
 }
 
 export function buildRollupAggregateQuery(filters: AggregateQueryFilters): BuiltAggregateQuery {
@@ -116,8 +120,8 @@ export function buildRollupAggregateQuery(filters: AggregateQueryFilters): Built
     const interval = bucketInterval(filters.bucket);
     const sinceMs = new Date(filters.since).getTime();
     const untilMs = new Date(filters.until).getTime();
-    const rollupStartMs =ceilToMinute(sinceMs);
-    const rollupEndMs =floorToMinute(untilMs);
+    const rollupStartMs = ceilToMinute(sinceMs);
+    const rollupEndMs = floorToMinute(untilMs);
 
     const buildCommonConditions = (timeColumn: string,start: string,end: string): string[] => {
         const conditions: string[] = [];
@@ -137,15 +141,20 @@ export function buildRollupAggregateQuery(filters: AggregateQueryFilters): Built
             const p = addValue(filters.level);
             conditions.push(`level = ${p}`);
         }
+
         return conditions;
     };
 
-    const buildRawPart = (start: string,end: string): string => {
+    const buildRawPart = (start: string,end: string,sign: 1 | -1 = 1): string => {
         const conditions = buildCommonConditions("timestamp",start,end);
 
+        const countExpression = sign === 1
+            ? "COUNT(*)::BIGINT AS count"
+            : "(-COUNT(*))::BIGINT AS count";
+
         const selectParts = [
-            `${dateBinExpression(interval, "timestamp")} AS bucket`,
-            `COUNT(*)::BIGINT AS count`,
+            `${dateBinExpression(interval,"timestamp")} AS bucket`,
+            countExpression,
         ];
 
         const groupParts = ["bucket"];
@@ -168,7 +177,7 @@ export function buildRollupAggregateQuery(filters: AggregateQueryFilters): Built
         const conditions = buildCommonConditions("bucket_start",start,end);
 
         const selectParts = [
-            `${dateBinExpression(interval, "bucket_start")} AS bucket`,
+            `${dateBinExpression(interval,"bucket_start")} AS bucket`,
             `SUM(count)::BIGINT AS count`,
         ];
 
@@ -187,17 +196,39 @@ export function buildRollupAggregateQuery(filters: AggregateQueryFilters): Built
             GROUP BY ${groupParts.join(", ")}
         `.trim();
     };
+
     if (rollupStartMs < rollupEndMs) {
         if (sinceMs < rollupStartMs) {
-            parts.push(buildRawPart(filters.since,new Date(rollupStartMs).toISOString()));
+            const firstMinuteStartMs = floorToMinute(sinceMs);
+            const excludedPrefixMs = sinceMs - firstMinuteStartMs;
+            const desiredSuffixMs = rollupStartMs - sinceMs;
+
+            if (excludedPrefixMs < desiredSuffixMs) {
+                parts.push(buildRollupPart(isoTimestamp(firstMinuteStartMs),isoTimestamp(rollupStartMs)));
+                parts.push(buildRawPart(isoTimestamp(firstMinuteStartMs),filters.since,-1));
+            }
+            else {
+                parts.push(buildRawPart(filters.since,isoTimestamp(rollupStartMs)));
+            }
         }
 
-        parts.push(buildRollupPart(new Date(rollupStartMs).toISOString(),new Date(rollupEndMs).toISOString()));
+        parts.push(buildRollupPart(isoTimestamp(rollupStartMs),isoTimestamp(rollupEndMs)));
 
         if (rollupEndMs < untilMs) {
-            parts.push(buildRawPart(new Date(rollupEndMs).toISOString(),filters.until));
+            const lastMinuteEndMs = rollupEndMs + MINUTE_MS;
+            const desiredPrefixMs = untilMs - rollupEndMs;
+            const excludedSuffixMs = lastMinuteEndMs - untilMs;
+
+            if (excludedSuffixMs < desiredPrefixMs) {
+                parts.push(buildRollupPart(isoTimestamp(rollupEndMs),isoTimestamp(lastMinuteEndMs)));
+                parts.push(buildRawPart(filters.until,isoTimestamp(lastMinuteEndMs),-1));
+            }
+            else {
+                parts.push(buildRawPart(isoTimestamp(rollupEndMs),filters.until));
+            }
         }
-    } else {
+    }
+    else {
         parts.push(buildRawPart(filters.since,filters.until));
     }
 
@@ -217,6 +248,7 @@ export function buildRollupAggregateQuery(filters: AggregateQueryFilters): Built
             ${finalSelectParts.join(",\n            ")}
         FROM aggregate_parts
         GROUP BY ${finalGroupParts.join(", ")}
+        HAVING SUM(count) > 0
         ORDER BY bucket ASC
     `.trim();
 
