@@ -4,6 +4,7 @@ import { pool } from "./pool.js";
 const knownPartitions=new Set<string>();
 const partitionOperations=new Map<string,Promise<void>>();
 const PARTITION_NAME_PATTERN=/^logs_\d{4}_\d{2}_\d{2}$/;
+const DAY_MS=24*60*60*1000;
 
 async function runPartitionOperation(name:string,operation:()=>Promise<void>):Promise<void>{
     const previous=partitionOperations.get(name);
@@ -119,20 +120,15 @@ export function forgetKnownPartition(name:string):void{
 }
 
 export async function ensurePartitionsForTimestamps(timestamps:readonly string[]):Promise<void>{
-    const uniqueDays=new Map<string,Date>();
+    const uniqueDays=new Set<number>();
 
     for(const timestamp of timestamps){
-        const date=new Date(timestamp);
-        const start=startOfUtcDay(date);
-        const name=partitionName(start);
-
-        if(!uniqueDays.has(name)){
-            uniqueDays.set(name,start);
-        }
+        const timestampMs=Date.parse(timestamp);
+        uniqueDays.add(Math.floor(timestampMs/DAY_MS)*DAY_MS);
     }
 
-    for(const date of uniqueDays.values()){
-        await ensureDailyPartition(date);
+    for(const startMs of uniqueDays){
+        await ensureDailyPartition(new Date(startMs));
     }
 }
 export async function ensureRollingPartitions(daysBack=30,daysAhead=1,referenceDate=new Date()):Promise<void>{

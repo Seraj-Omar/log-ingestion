@@ -145,6 +145,44 @@ describe('partition creation cache', () => {
     ).toHaveBeenCalledTimes(2);
   });
 
+  it('deduplicates timestamp partitions by UTC day', async () => {
+    databaseMocks.query.mockResolvedValue(
+      undefined,
+    );
+
+    const {
+      ensurePartitionsForTimestamps,
+    } = await import(
+      '../../src/database/partitions.js'
+    );
+
+    await ensurePartitionsForTimestamps([
+      '2452-03-04T00:30:00.000+02:00',
+      '2452-03-03T23:45:00.000Z',
+      '2452-03-04T01:15:00.000+01:00',
+    ]);
+
+    expect(
+      databaseMocks.query,
+    ).toHaveBeenCalledTimes(2);
+
+    const partitionSql =
+      databaseMocks.query.mock.calls.map(
+        ([sql]) => String(sql),
+      );
+
+    expect(partitionSql).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'logs_2452_03_03',
+        ),
+        expect.stringContaining(
+          'logs_2452_03_04',
+        ),
+      ]),
+    );
+  });
+
   it('serializes retention drops with creation and recreates afterward', async () => {
     let finishDrop:
       | (() => void)

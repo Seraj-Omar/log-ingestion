@@ -18,6 +18,7 @@ const COPY_SQL = `
     WITH (FORMAT csv)
 `;
 
+const COPY_CHUNK_TARGET_BYTES = 64 * 1024;
 const MINUTE_MS = 60_000;
 
 interface RollupDelta {
@@ -69,9 +70,34 @@ function accumulateRollup(rollups: RollupAccumulator,log: ValidLog): void {
 }
 
 function* serializeLogs(logs: readonly ValidLog[],rollups: RollupAccumulator): Generator<string> {
+    let rows: string[] = [];
+    let chunkBytes = 0;
+
     for (const log of logs) {
         accumulateRollup(rollups,log);
-        yield serializeLog(log);
+        const row = serializeLog(log);
+        const rowBytes = Buffer.byteLength(row,"utf8");
+
+        if (rows.length > 0 && chunkBytes + rowBytes > COPY_CHUNK_TARGET_BYTES) {
+            const chunk = rows.join("");
+            rows = [];
+            chunkBytes = 0;
+            yield chunk;
+        }
+
+        rows.push(row);
+        chunkBytes += rowBytes;
+
+        if (chunkBytes >= COPY_CHUNK_TARGET_BYTES) {
+            const chunk = rows.join("");
+            rows = [];
+            chunkBytes = 0;
+            yield chunk;
+        }
+    }
+
+    if (rows.length > 0) {
+        yield rows.join("");
     }
 }
 

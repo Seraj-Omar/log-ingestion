@@ -25,10 +25,12 @@ import type { ValidLog } from '../../src/schemas/log.js';
 
 function createWritableCollector() {
   let output = '';
+  const chunkSizes: number[] = [];
 
   const stream = new Writable({
     write(chunk, _encoding, callback) {
       output += chunk.toString();
+      chunkSizes.push(chunk.length);
       callback();
     },
   });
@@ -36,6 +38,7 @@ function createWritableCollector() {
   return {
     stream,
     getOutput: () => output,
+    getChunkSizes: () => chunkSizes,
   };
 }
 
@@ -195,6 +198,60 @@ describe('insertLogs COPY persistence', () => {
     expect(
       release,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  it('groups COPY rows into bounded UTF-8 chunks', async () => {
+    const logs: ValidLog[] = Array.from(
+      { length: 300 },
+      (_, index) => ({
+        timestamp:
+          '2450-01-01T00:00:00.000Z',
+        level: 'info',
+        service: 'copy-chunk-test',
+        message:
+          `${index}-${'€'.repeat(150)}`,
+        attributes: { index },
+      }),
+    );
+
+    const {
+      stream,
+      getOutput,
+      getChunkSizes,
+    } = createWritableCollector();
+
+    const {
+      client,
+    } = createMockClient(stream);
+
+    mockPoolConnection(client);
+
+    await insertLogs(logs);
+
+    const chunkSizes = getChunkSizes();
+
+    expect(chunkSizes.length).toBeGreaterThan(1);
+    expect(chunkSizes.length).toBeLessThan(
+      logs.length,
+    );
+
+    expect(
+      chunkSizes.every(
+        (size) => size <= 64 * 1024,
+      ),
+    ).toBe(true);
+
+    expect(
+      chunkSizes.reduce(
+        (total, size) => total + size,
+        0,
+      ),
+    ).toBe(
+      Buffer.byteLength(
+        getOutput(),
+        'utf8',
+      ),
+    );
   });
 
   it('correctly escapes CSV-sensitive log values', async () => {
